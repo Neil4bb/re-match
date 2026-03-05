@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-4">
+        <h2 class="text-center">🔑 會員登入</h2>
+        <form method="POST" class="mt-4">
+            <div class="mb-3">
+                <label>帳號</label>
+                <input type="text" name="username" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label>密碼</label>
+                <input type="password" name="password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">登入</button>
+        </form>
+        <div class="mt-3 text-center">
+            <a href="/register">還沒有帳號？點此註冊</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

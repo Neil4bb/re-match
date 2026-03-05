@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-4">
+        <div class="card shadow-sm mt-5">
+            <div class="card-body">
+                <h2 class="text-center mb-4">📝 會員註冊</h2>
+                
+                {# 顯示閃退訊息（如帳號已存在） #}
+                {% with messages = get_flashed_messages() %}
+                  {% if messages %}
+                    {% for message in messages %}
+                      <div class="alert alert-danger py-2">{{ message }}</div>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
+
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">設定帳號</label>
+                        <input type="text" name="username" class="form-control" placeholder="請輸入使用者名稱" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">設定密碼</label>
+                        <input type="password" name="password" class="form-control" placeholder="請輸入密碼" required>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100">立即註冊</button>
+                </form>
+                
+                <div class="mt-3 text-center">
+                    <small class="text-muted">已有帳號？</small>
+                    <a href="{{ url_for('login') }}" class="text-decoration-none">前往登入</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

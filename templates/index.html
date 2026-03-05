@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>📊 全球市場行情監控</h2>
+            <div class="btn-group">
+                <a href="/" class="btn btn-primary active">市場監控</a>
+                <a href="/my-assets" class="btn btn-outline-primary">我的資產</a>
+            </div>
+        </div>
+
+        <div class="alert alert-info shadow-sm py-2">
+            <small>💡 匯率基準：1 HKD ≈ 4.2 TWD (自動換算香港 eShop 即時價格)</small>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 35%">遊戲名稱 / 識別碼</th>
+                            <th>數位版行情 (eShop)</th>
+                            <th>二手市場行情 (Retail)</th>
+                            <th>買入建議</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for game in games %}
+                            {# 計算價差邏輯 #}
+                            {% set has_both = game.eshop != 'N/A' and game.retail != 'N/A' %}
+                            
+                            <tr>
+                                <td>
+                                    <div class="fw-bold">{{ game.name }}</div>
+                                    <small class="text-muted" style="font-size: 0.75rem;">
+                                        NSUID: {{ game.nsuid if game.nsuid else '未設定' }}
+                                    </small>
+                                </td>
+                                
+                                {# 數位版欄位：若數位版比二手便宜，觸發變色預警 #}
+                                <td class="{% if has_both and game.eshop < game.retail %}table-success fw-bold{% endif %}">
+                                    {% if game.eshop != 'N/A' %}
+                                        NT$ {{ game.eshop }}
+                                    {% else %}
+                                        <span class="text-muted">等待抓取...</span>
+                                    {% endif %}
+                                </td>
+
+                                <td class="text-success fw-bold">
+                                    {% if game.retail != 'N/A' %}
+                                        NT$ {{ game.retail }}
+                                    {% else %}
+                                        <span class="text-muted">尚未輸入</span>
+                                    {% endif %}
+                                </td>
+
+                                <td>
+                                    {% if has_both %}
+                                        {% set diff = (game.retail - game.eshop) | int %}
+                                        {% if diff > 0 %}
+                                            <span class="badge bg-success">推薦買數位版</span>
+                                            <small class="d-block text-success">省下 NT$ {{ diff }}</small>
+                                        {% else %}
+                                            <span class="badge bg-secondary">推薦買實體版</span>
+                                            <small class="d-block text-muted">便宜 NT$ {{ diff | abs }}</small>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="badge bg-light text-dark">資料不足</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if current_user.is_authenticated %}
+                                        {# 只有登入時顯示追蹤按鈕 #}
+                                        <a href="{{ url_for('add_to_assets', game_id=game.id) }}" 
+                                        class="btn btn-outline-primary btn-sm">
+                                        ➕ 追蹤
+                                        </a>
+                                    {% else %}
+                                        {# 未登入時提示使用者 #}
+                                        <a href="{{ url_for('login') }}" class="btn btn-sm btn-light">登入以追蹤</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

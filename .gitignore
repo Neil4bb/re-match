@@ -1,0 +1,18 @@
+# Python 自動生成的暫存檔
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虛擬環境 (非常重要，絕對不要上傳這個，Render 會自己安裝)
+venv/
+env/
+
+# 資料庫檔案 (避免把測試用的舊資料上傳，或造成部署衝突)
+*.db
+
+# 敏感資訊 (包含你的 IGDB ID、Secret 以及 Flask 的 Secret Key)
+.env
+
+# 作業系統產生的垃圾檔
+.DS_Store
+Thumbs.db
