@@ -1,49 +1,67 @@
-from app import app
 from extensions import db
 from models import Game, MarketPrice, UserAsset
-from igdb_service import IGDBService
+from services.igdb_service import IGDBService
 
 class MainManager:
     def __init__(self):
         self.igdb = IGDBService()
 
+    # --- Day 8 新增/修改：搜尋與存檔 ---
     def search_and_store_game(self, keyword):
-        """搜尋並將結果存入資料庫 (如果不存在的話)"""
-        # 1. 先去 IGDB 抓資料
+        """搜尋並將結果存入資料庫，回傳物件清單"""
+        # 將導入移到這裡！只有執行這個函式時才會去找 app 避免循環導入
+        from app import app
+
+        # 呼叫已經重構好的 igdb_service，這裡拿到的資料已經處理過圖片與平台
         raw_results = self.igdb.search_game(keyword)
+        
         if not raw_results:
-            return "找不到相關遊戲"
+            return []
 
         processed_games = []
         
         with app.app_context():
             for item in raw_results:
-                # 檢查資料庫是否已經有這款遊戲 (避免重複存檔)
-                existing_game = Game.query.get(item['id'])
+                # 使用 filter_by 確保抓到最新的資料庫物件
+                existing_game = Game.query.filter_by(id=item['id']).first()
                 
-                if not existing_game:
-                    # 處理封面圖網址 (IGDB 給的是相對路徑，我們幫它補齊)
-                    cover = item.get('cover', {}).get('url', '')
-                    if cover:
-                        cover = "https:" + cover.replace('t_thumb', 't_cover_big')
+                # 取得 igdb_service 抓到的中文名
+                c_name = item.get('chinese_name', '')
 
-                    # 建立新遊戲物件
+                if not existing_game:
+                    # 建立新遊戲
                     new_game = Game(
                         id=item['id'],
                         name=item['name'],
-                        cover_url=cover,
-                        platform=item.get('platforms', [{}])[0].get('name', 'Unknown')
+                        chinese_name=c_name,
+                        cover_url=item['cover_url'],
+                        platform=item['platform_name']
                     )
                     db.session.add(new_game)
-                    processed_games.append(f"新存入: {new_game.name}")
+                    processed_games.append(new_game)
                 else:
-                    processed_games.append(f"已存在: {existing_game.name}")
+                    # 🔥 [關鍵修正]：如果資料庫裡沒中文，但 API 有抓到，就立刻補填
+                    if c_name and not existing_game.chinese_name:
+                        existing_game.chinese_name = c_name
+                    
+                    # 為了保險，同步更新可能變動的封面或平台資訊
+                    existing_game.cover_url = item['cover_url']
+                    existing_game.platform = item['platform_name']
+                    
+                    processed_games.append(existing_game)
             
-            db.session.commit()
+            db.session.commit() # 這一行會把所有的「補填」寫入資料庫
+            # 🔥 [解決方案]：在 commit 後手動把物件從 session 中「剝離」
+            # 這樣就算 session 關閉，HTML 範本還是能讀取到欄位內容
+            for g in processed_games:
+                db.session.refresh(g) # 確保最新資料已載入
+                db.session.expunge(g) # 讓物件脫離 Session 狀態，變成獨立的資料字典
+
         return processed_games
-    
-    #把ptt的標題 對應到資料庫裡的game_id
+
+    # --- 原本的功能：PTT 標題對應 (務必保留) ---
     def update_market_prices(self):
+        from app import app
         from ptt_service import PttAdapter
         ptt = PttAdapter()
         posts = ptt.fetch_latest_posts() # 抓回標題
@@ -74,16 +92,3 @@ class MainManager:
             
             db.session.commit()
             return f"掃描完成！成功更新 {matches_found} 筆市價資料。"
-
-# --- 測試整合邏輯 ---
-if __name__ == "__main__":
-    # 1. 實例化指揮官
-    manager = MainManager()
-    
-    # 2. 執行市價更新任務
-    print("--- 開始執行 Day 4 市價更新任務 ---")
-    status_message = manager.update_market_prices()
-    
-    # 3. 印出結果
-    print(status_message)
-    print("--- 任務結束 ---")

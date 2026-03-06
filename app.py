@@ -3,10 +3,17 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from extensions import db
 from models import db, Game, MarketPrice, User, UserAsset
 import os
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 app = Flask(__name__)
 
-app.config['SECRET_KEY'] = 'dev-key-123456'
+from services.main_service import MainManager
+manager = MainManager()
+
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-123456')
 
 # 設定 SQLite 資料庫路徑
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -36,21 +43,9 @@ def load_user(user_id):
 # --- 首頁：顯示所有監控中的遊戲 ---
 @app.route('/')
 def index():
-    games = Game.query.all()
-    game_list = []
-    for g in games:
-        # 撈取最新的 eShop 與 Retail 價格
-        eshop = MarketPrice.query.filter_by(game_id=g.id, source='eShop').order_by(MarketPrice.created_at.desc()).first()
-        retail = MarketPrice.query.filter_by(game_id=g.id, source='Retail').order_by(MarketPrice.created_at.desc()).first()
-        
-        game_list.append({
-            'id' : g.id,
-            'name': g.name,
-            'eshop': eshop.price if eshop else "N/A",
-            'retail': retail.price if retail else "N/A",
-            'nsuid': g.eshop_nsuid
-        })
-    return render_template('index.html', games=game_list)
+    # 一次性抓取所有遊戲及其關聯的價格，避免 N+1 問題
+    games = Game.query.all() 
+    return render_template('index.html', games=games)
 
 # --- 註冊功能 ---
 @app.route('/register', methods=['GET', 'POST'])
@@ -112,6 +107,21 @@ def add_to_assets(game_id):
     
     # 3. 完成後導回首頁
     return redirect(url_for('index'))
+
+
+@app.route('/search')
+def search():
+    # 1. 從網址列抓取搜尋詞 (例如 /search?q=Zelda)
+    query = request.args.get('q', '') 
+    
+    results = []
+    if query:
+        # 2. 呼叫指揮官執行搜尋、過濾、並存入資料庫
+        # 這會回傳一個包含 Game 物件的列表
+        results = manager.search_and_store_game(query)
+    
+    # 3. 將結果丟給 HTML 範本渲染
+    return render_template('search_results.html', games=results, query=query)
 
 # --- 資產頁：僅顯示已購遊戲 ---
 @app.route('/my-assets')

@@ -8,15 +8,40 @@ from werkzeug.security import generate_password_hash, check_password_hash
 class Game(db.Model):
     __tablename__ = 'games'
     id = db.Column(db.Integer, primary_key=True)  # IGDB ID
-    name = db.Column(db.String(200), nullable=False)
+    name = db.Column(db.String(200), nullable=False) # 英文原名
+    chinese_name = db.Column(db.String(200)) # 中文譯名
     platform = db.Column(db.String(50))
     cover_url = db.Column(db.String(500))
     eshop_nsuid = db.Column(db.String(20), nullable=True)
     historical_low = db.Column(db.Float, default=0)
     # 關聯：一個遊戲可以有多個行情紀錄
     prices = db.relationship('MarketPrice', backref='game', lazy=True)
-    assets = db.relationship('UserAsset', lazy=True, overlaps="game")
+    user_assets = db.relationship('UserAsset',backref='game', lazy=True)
 
+    def get_market_analysis(self):
+        """將所有市場邏輯封裝在模型內"""
+        eshop = MarketPrice.query.filter_by(game_id=self.id, source='eShop').order_by(MarketPrice.created_at.desc()).first()
+        retail = MarketPrice.query.filter_by(game_id=self.id, source='Retail').order_by(MarketPrice.created_at.desc()).first()
+        
+        e_price = eshop.price if eshop else None
+        r_price = retail.price if retail else None
+        
+        # 計算建議
+        suggestion = "資料不足"
+        diff = 0
+        if e_price and r_price:
+            diff = r_price - e_price
+            suggestion = "推薦買數位版" if diff > 0 else "推薦買實體版"
+            
+        return {
+            'eshop': e_price or "N/A",
+            'retail': r_price or "N/A",
+            'suggestion': suggestion,
+            'diff': abs(diff),
+            'has_both': e_price is not None and r_price is not None,
+            'is_digital_cheaper': diff > 0
+        }
+    
 # 2. 市場行情紀錄表 (Market Prices)
 class MarketPrice(db.Model):
     __tablename__ = 'market_prices'
@@ -50,9 +75,6 @@ class UserAsset(db.Model):
     # 關鍵：新增 User 關聯
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     game_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=False)
-    
-    # 建立與 Game 的直接關聯，方便在分析函數中呼叫
-    game = db.relationship('Game', backref='user_assets', overlaps="assets")
     
     platform = db.Column(db.String(20), nullable=False, default='Switch') 
     status = db.Column(db.String(20), nullable=False, default='owned') # 'owned' 或 'wishlist' 

@@ -29,58 +29,66 @@
                     </thead>
                     <tbody>
                         {% for game in games %}
-                            {# 計算價差邏輯 #}
-                            {% set has_both = game.eshop != 'N/A' and game.retail != 'N/A' %}
+                            {# 呼叫模型裡的分析方法 #}
+                            {% set analysis = game.get_market_analysis() %}
                             
                             <tr>
+                                <td class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <img src="{{ game.cover_url if game.cover_url else 'https://placehold.co/60x80?text=No+Cover' }}" 
+                                            alt="{{ game.name }}" 
+                                            class="rounded shadow-sm" 
+                                            style="width: 60px; height: 80px; object-fit: cover;">
+                                    </div>
+                                    
+                                    <div>
+                                        <div class="fw-bold text-primary">
+                                            {{ game.chinese_name if game.chinese_name else game.name }}
+                                        </div>
+                                        <div class="text-muted" style="font-size: 0.75rem;">
+                                            {% if game.chinese_name %}
+                                                <span class="d-block">{{ game.name }}</span>
+                                            {% endif %}
+                                            <span class="badge bg-light text-dark border-0 p-0">NSUID: {{ game.eshop_nsuid if game.eshop_nsuid else '未設定' }}</span>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <td class="{% if analysis.is_digital_cheaper %}table-success fw-bold text-success{% endif %}">
+                                    {% if analysis.eshop != 'N/A' %}
+                                        NT$ {{ analysis.eshop }}
+                                    {% else %}
+                                        <span class="text-muted small">等待抓取...</span>
+                                    {% endif %}
+                                </td>
+
+                                <td class="fw-bold">
+                                    {% if analysis.retail != 'N/A' %}
+                                        NT$ {{ analysis.retail }}
+                                    {% else %}
+                                        <span class="text-muted small">尚未輸入</span>
+                                    {% endif %}
+                                </td>
+
                                 <td>
-                                    <div class="fw-bold">{{ game.name }}</div>
-                                    <small class="text-muted" style="font-size: 0.75rem;">
-                                        NSUID: {{ game.nsuid if game.nsuid else '未設定' }}
-                                    </small>
+                                    <span class="badge {% if analysis.suggestion == '推薦買數位版' %}bg-success{% else %}bg-secondary{% endif %}">
+                                        {{ analysis.suggestion }}
+                                    </span>
+                                    {% if analysis.has_both %}
+                                        <small class="d-block mt-1 {% if analysis.is_digital_cheaper %}text-success{% else %}text-muted{% endif %}">
+                                            {{ '省下' if analysis.is_digital_cheaper else '便宜' }} NT$ {{ analysis.diff }}
+                                        </small>
+                                    {% endif %}
                                 </td>
                                 
-                                {# 數位版欄位：若數位版比二手便宜，觸發變色預警 #}
-                                <td class="{% if has_both and game.eshop < game.retail %}table-success fw-bold{% endif %}">
-                                    {% if game.eshop != 'N/A' %}
-                                        NT$ {{ game.eshop }}
-                                    {% else %}
-                                        <span class="text-muted">等待抓取...</span>
-                                    {% endif %}
-                                </td>
-
-                                <td class="text-success fw-bold">
-                                    {% if game.retail != 'N/A' %}
-                                        NT$ {{ game.retail }}
-                                    {% else %}
-                                        <span class="text-muted">尚未輸入</span>
-                                    {% endif %}
-                                </td>
-
-                                <td>
-                                    {% if has_both %}
-                                        {% set diff = (game.retail - game.eshop) | int %}
-                                        {% if diff > 0 %}
-                                            <span class="badge bg-success">推薦買數位版</span>
-                                            <small class="d-block text-success">省下 NT$ {{ diff }}</small>
-                                        {% else %}
-                                            <span class="badge bg-secondary">推薦買實體版</span>
-                                            <small class="d-block text-muted">便宜 NT$ {{ diff | abs }}</small>
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="badge bg-light text-dark">資料不足</span>
-                                    {% endif %}
-                                </td>
                                 <td>
                                     {% if current_user.is_authenticated %}
-                                        {# 只有登入時顯示追蹤按鈕 #}
                                         <a href="{{ url_for('add_to_assets', game_id=game.id) }}" 
-                                        class="btn btn-outline-primary btn-sm">
+                                        class="btn btn-primary btn-sm px-3 shadow-sm">
                                         ➕ 追蹤
                                         </a>
                                     {% else %}
-                                        {# 未登入時提示使用者 #}
-                                        <a href="{{ url_for('login') }}" class="btn btn-sm btn-light">登入以追蹤</a>
+                                        <a href="{{ url_for('login') }}" class="btn btn-sm btn-outline-secondary">登入追蹤</a>
                                     {% endif %}
                                 </td>
                             </tr>

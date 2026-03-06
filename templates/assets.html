@@ -17,7 +17,7 @@
         <div class="tab-content" id="assetTabContent">
             <div class="tab-pane fade show active" id="owned" role="tabpanel">
                 <div class="card shadow-sm">
-                    <table class="table mb-0">
+                    <table class="table mb-0 align-middle">
                         <thead class="table-light">
                             <tr>
                                 <th>遊戲名稱</th>
@@ -29,9 +29,26 @@
                             {% for asset in owned %}
                                 {% set res = asset.get_analysis() %}
                                 <tr class="table-{{ res.status }}">
-                                    <td><strong>{{ asset.game.name }}</strong></td>
+                                    <td class="d-flex align-items-center">
+                                        <div class="me-3">
+                                            <img src="{{ asset.game.cover_url if asset.game.cover_url else 'https://placehold.co/50x65?text=No+Img' }}" 
+                                                alt="{{ asset.game.name }}" 
+                                                class="rounded shadow-sm" 
+                                                style="width: 50px; height: 65px; object-fit: cover;">
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold">
+                                                {{ asset.game.chinese_name if asset.game.chinese_name else asset.game.name }}
+                                            </div>
+                                            {% if asset.game.chinese_name %}
+                                                <small class="text-muted d-block">{{ asset.game.name }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                     <td>NT$ {{ asset.purchase_price }}</td>
-                                    <td>{{ res.reason }}</td>
+                                    <td>
+                                        <span class="badge bg-{{ res.status }}">{{ res.reason }}</span>
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>
@@ -41,7 +58,7 @@
 
             <div class="tab-pane fade" id="wishlist" role="tabpanel">
                 <div class="card shadow-sm border-info">
-                    <table class="table mb-0">
+                    <table class="table mb-0 align-middle">
                         <thead class="table-info">
                             <tr>
                                 <th>遊戲名稱</th>
@@ -54,7 +71,22 @@
                             {% for asset in wishlist %}
                                 {% set res = asset.get_analysis() %}
                                 <tr>
-                                    <td><strong>{{ asset.game.name }}</strong></td>
+                                    <td class="d-flex align-items-center">
+                                        <div class="me-3">
+                                            <img src="{{ asset.game.cover_url if asset.game.cover_url else 'https://placehold.co/50x65?text=No+Img' }}" 
+                                                alt="{{ asset.game.name }}" 
+                                                class="rounded shadow-sm" 
+                                                style="width: 50px; height: 65px; object-fit: cover;">
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold">
+                                                {{ asset.game.chinese_name if asset.game.chinese_name else asset.game.name }}
+                                            </div>
+                                            {% if asset.game.chinese_name %}
+                                                <small class="text-muted d-block">{{ asset.game.name }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                     <td>NT$ {{ asset.target_price or '未設定' }}</td>
                                     <td class="text-primary fw-bold">NT$ {{ res.digital or 'N/A' }}</td>
                                     <td>
