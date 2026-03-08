@@ -1,76 +1,131 @@
 import requests
 from bs4 import BeautifulSoup
-import time # 增加延遲
+import time 
 import re
+from datetime import datetime, timedelta
 
 class PttAdapter:
     def __init__(self):
-        self.url = "https://www.ptt.cc/bbs/Gamesale/index.html"
-        # 更加擬真的瀏覽器標頭
+        self.base_url = "https://www.ptt.cc"
+        self.search_url = "https://www.ptt.cc/bbs/Gamesale/search"
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Referer': 'https://www.ptt.cc/bbs/index.html',
-            'Cookie': 'over18=1' # PTT 有些版會檢查是否滿 18 歲，雖然 Gamesale 不一定強制，但帶著保險
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Cookie': 'over18=1' 
         }
-        # 使用 Session 維持連線
         self.session = requests.Session()
         self.session.headers.update(self.headers)
 
-    def fetch_latest_posts(self):
+    def search_game_prices(self, game_name, limit=3, target_game=None):
+        """
+        搜尋 PTT 貼文列表，並點進內文進行深度獵殺
+        """
+        if target_game is None:
+            target_game = game_name
+
+        # 關鍵字清洗：移除特殊符號以增加搜尋命中率
+        search_query = re.split(r'[:：！!/／]', game_name)[0].strip()
+        params = {'q': search_query} 
+        
         try:
-            # 增加一點隨機延遲，避免被秒擋
-            time.sleep(1) 
-            response = self.session.get(self.url, timeout=10)
-            
-            if response.status_code != 200:
-                print(f"無法連上 PTT！狀態碼: {response.status_code}")
-                return []
+            time.sleep(1.2) # 稍微增加延遲避免被 PTT 封鎖
+            response = self.session.get(self.search_url, params=params, timeout=10)
+            if response.status_code != 200: return []
 
             soup = BeautifulSoup(response.text, 'lxml')
-            titles = soup.select('.r-ent')
-            post_data = []
+            posts = soup.select('.r-ent')
+            valid_results = []
+            # 設定一個月的效期
+            one_month_ago = datetime.now() - timedelta(days=30)
 
-            for item in titles:
-                title_div = item.select_one('.title')
-                if not title_div:
-                    continue
+            for item in posts:
+                # 1. 日期篩選邏輯
+                date_str = item.select_one('.date').text.strip()
+                try:
+                    current_year = datetime.now().year
+                    post_date = datetime.strptime(f"{current_year}/{date_str}", "%Y/%m/%d")
+                    if post_date > datetime.now(): 
+                        post_date = post_date.replace(year=current_year - 1)
+                    if post_date < one_month_ago: continue 
+                except: continue
+
+                # 2. 標題初步過濾
+                title_link = item.select_one('.title a')
+                if not title_link: continue
+                title_text = title_link.text.strip()
+                if "售" not in title_text or "徵" in title_text: continue
+
+                # 3. 點進內文精準獵殺價格
+                article_url = self.base_url + title_link['href']
+                price = self.get_price_from_content(article_url, target_game)
                 
-                title_text = title_div.text.strip() # .strip() 可以去掉換行符號
+                if price:
+                    valid_results.append({
+                        'price': price,
+                        'date': date_str,
+                        'title': title_text
+                    })
+                    print(f"✅ 內文抓取成功: {title_text[:15]}... 價格: {price}")
                 
-                
-                if "售" in title_text and "徵" not in title_text:
-                    post_data.append(title_text)
+                if len(valid_results) >= limit: break
+                time.sleep(0.6) # 內文點擊間隔
             
-            return post_data
-
+            return valid_results
         except Exception as e:
-            print(f"發生連線錯誤: {e}")
+            print(f"❌ PTT 搜尋 {search_query} 失敗: {e}")
             return []
-        
-    def extract_price(self, title):
-        """從標題中利用正規表示法抓取 3-5 位數的價格"""
-        # 1. 移除掉 PS5, NS2, 3DS 等干擾數字
-        # 我們先把 [ ] 裡面的內容暫時拿掉，避免 Regex 抓錯
-        clean_title = re.sub(r'\[.*?\]', '', title)
 
-        # 2. 尋找 3 到 5 位數的數字
-        # r'\d{3,5}' 的意思是：尋找連續出現 3 到 5 次的數字
-        match = re.search(r'\d{3,5}', clean_title)
-        
-        if match:
-            return int(match.group())
+    def get_price_from_content(self, url, target_game):
+        """
+        深入文章內文，對齊「物品名稱」與「售價」的順序
+        """
+        try:
+            res = self.session.get(url, timeout=10)
+            if res.status_code != 200: return None
+            
+            content_soup = BeautifulSoup(res.text, 'lxml')
+            main_content = content_soup.select_one('#main-content')
+            if not main_content: return None
+            
+            # 清除 Meta 雜訊（作者、看板、標題、時間），防止 Regex 誤抓作者 ID 裡的數字
+            for meta in main_content.select('.article-metaline, .article-metaline-right'):
+                meta.decompose()
+            
+            text = main_content.text
+
+            # 透過 Regex 劃分區塊
+            name_match = re.search(r'【物品名稱】：(.*?)【', text, re.S)
+            price_match = re.search(r'【售\s+價】：(.*?)【', text, re.S)
+            
+            if name_match and price_match:
+                names = name_match.group(1).strip().split('\n')
+                prices = price_match.group(1).strip().split('\n')
+                
+                # 取得目標遊戲核心關鍵字（前 4 字）進行匹配
+                target_core = re.split(r'[:：！!/／]', target_game)[0].strip()[:4].lower()
+                
+                target_index = -1
+                for i, name in enumerate(names):
+                    if target_core in name.lower():
+                        target_index = i
+                        break
+                
+                # 若找到索引，則抓取售價區塊對應行的數字
+                if target_index != -1 and target_index < len(prices):
+                    price_line = prices[target_index]
+                    # 搜尋該行中的 3~4 位數字
+                    found = re.search(r'\d{3,4}', price_line)
+                    if found:
+                        val = int(found.group())
+                        # 過濾掉年份 (2025/2026) 與過低價格
+                        if 100 < val < 5000 and val not in [2025, 2026]:
+                            return val
+
+            # 備用方案：若結構化匹配失敗，嘗試全文搜尋（排除常見年份）
+            all_nums = re.findall(r'\d{3,4}', text)
+            for n_str in all_nums:
+                n = int(n_str)
+                if 250 < n < 3500 and n not in [2025, 2026]:
+                    return n
+        except:
+            return None
         return None
-
-if __name__ == "__main__":
-    ptt = PttAdapter()
-    posts = ptt.fetch_latest_posts()
-    if posts:
-        print(f"--- 成功抓取 {len(posts)} 筆資料 ---")
-        for p in posts:
-            price = ptt.extract_price(p)
-            print(f"標題: {p}")
-            print(f" => 偵測價格: {price if price else '未偵測到'}")
-    else:
-        print("依然沒抓到，請確認程式中的 '售' 字是否與網頁上的字元編碼一致。")

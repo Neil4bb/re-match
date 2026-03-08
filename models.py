@@ -19,14 +19,20 @@ class Game(db.Model):
     user_assets = db.relationship('UserAsset',backref='game', lazy=True)
 
     def get_market_analysis(self):
-        """將所有市場邏輯封裝在模型內"""
-        eshop = MarketPrice.query.filter_by(game_id=self.id, source='eShop').order_by(MarketPrice.created_at.desc()).first()
-        retail = MarketPrice.query.filter_by(game_id=self.id, source='Retail').order_by(MarketPrice.created_at.desc()).first()
+        """利用 relationship 進行記憶體內過濾，不再重複 query"""
+        # 1. 從關聯好的 prices 中挑出資料，並按時間排序 (created_at)
+        # 我們直接對 self.prices 這個 list 進行操作
+        sorted_prices = sorted(self.prices, key=lambda p: p.created_at, reverse=True)
         
-        e_price = eshop.price if eshop else None
-        r_price = retail.price if retail else None
+        # 2. 找出最新的一筆 eShop 與 PTT 紀錄
+        latest_eshop = next((p for p in sorted_prices if p.source == 'eShop'), None)
+        # 注意：這裡修正為 'PTT'，對位你的爬蟲來源
+        latest_ptt = next((p for p in sorted_prices if p.source == 'PTT'), None)
         
-        # 計算建議
+        e_price = latest_eshop.price if latest_eshop else None
+        r_price = latest_ptt.price if latest_ptt else None
+        
+        # 3. 計算建議 (維持你原本的邏輯)
         suggestion = "資料不足"
         diff = 0
         if e_price and r_price:
@@ -34,8 +40,8 @@ class Game(db.Model):
             suggestion = "推薦買數位版" if diff > 0 else "推薦買實體版"
             
         return {
-            'eshop': e_price or "N/A",
-            'retail': r_price or "N/A",
+            'eshop': e_price or "N/A",   # 確保沒資料時回傳前端等待的 "N/A"
+            'retail': r_price or "N/A",  # 對齊 index.html 的 analysis.retail
             'suggestion': suggestion,
             'diff': abs(diff),
             'has_both': e_price is not None and r_price is not None,

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Re: Match 再易局</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <style>
         body { background-color: #f8f9fa; }
         .navbar { margin-bottom: 2rem; }
@@ -21,7 +22,7 @@
                 
                 <form class="d-flex me-3" action="{{ url_for('search') }}" method="GET">
                     <input class="form-control form-control-sm me-2" type="search" name="q" 
-                        placeholder="搜尋遊戲 (如: Zelda)" aria-label="Search" style="width: 180px;">
+                        placeholder="搜尋遊戲" aria-label="Search" style="width: 180px;">
                     <button class="btn btn-outline-light btn-sm" type="submit">🔍</button>
                 </form>
 

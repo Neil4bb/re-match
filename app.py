@@ -85,28 +85,7 @@ def logout():
     logout_user() # 銷毀 Session
     return redirect(url_for('login'))
 
-@app.route('/add-to-assets/<int:game_id>')
-@login_required # 確保只有登入者能執行此動作
-def add_to_assets(game_id):
-    # 1. 檢查該遊戲是否已存在於該使用者的清單中
-    exists = UserAsset.query.filter_by(user_id=current_user.id, game_id=game_id).first()
-    
-    if exists:
-        flash('此遊戲已在你的追蹤清單中囉！')
-    else:
-        # 2. 建立新的關聯紀錄，預設為願望清單 (wishlist)
-        new_asset = UserAsset(
-            user_id=current_user.id,
-            game_id=game_id,
-            status='wishlist',
-            platform='Switch'  # 預設平台
-        )
-        db.session.add(new_asset)
-        db.session.commit()
-        flash('成功加入願望清單！')
-    
-    # 3. 完成後導回首頁
-    return redirect(url_for('index'))
+
 
 
 @app.route('/search')
@@ -135,6 +114,66 @@ def my_assets():
     wishlist = [a for a in all_user_assets if a.status == 'wishlist']
 
     return render_template('assets.html', owned=owned , wishlist=wishlist)
+
+@app.route('/add-to-assets/<int:game_id>')
+@login_required # 確保只有登入者能執行此動作
+def add_to_assets(game_id):
+    # 1. 檢查該遊戲是否已存在於該使用者的清單中
+    exists = UserAsset.query.filter_by(user_id=current_user.id, game_id=game_id).first()
+    
+    if exists:
+        flash('此遊戲已在你的追蹤清單中囉！')
+    else:
+        # 2. 建立新的關聯紀錄，預設為願望清單 (wishlist)
+        new_asset = UserAsset(
+            user_id=current_user.id,
+            game_id=game_id,
+            status='wishlist',
+            platform='Switch'  # 預設平台
+        )
+        db.session.add(new_asset)
+        db.session.commit()
+        flash('成功加入願望清單！')
+    
+    # 3. 完成後導回首頁
+    return redirect(url_for('index'))
+
+# --- 請將以下路由加入到 app.py 中 (建議放在 add_to_assets 之後) ---
+
+@app.route('/edit_asset/<int:asset_id>', methods=['POST'])
+@login_required
+def edit_asset(asset_id):
+    asset = UserAsset.query.get_or_404(asset_id)
+    
+    # 安全檢查：確保使用者只能編輯自己的資產
+    if asset.user_id != current_user.id:
+        flash('權限不足', 'danger')
+        return redirect(url_for('my_assets'))
+    
+    # 根據提交的表單內容更新欄位
+    # 如果是已持有則更新購入價，如果是願望清單則更新目標價
+    p_price = request.form.get('purchase_price')
+    t_price = request.form.get('target_price')
+    status = request.form.get('status')
+
+    if p_price is not None: asset.purchase_price = float(p_price) if p_price else 0
+    if t_price is not None: asset.target_price = float(t_price) if t_price else 0
+    if status: asset.status = status
+    
+    db.session.commit()
+    flash('資產資訊已更新！', 'success')
+    return redirect(url_for('my_assets'))
+
+@app.route('/delete_asset/<int:asset_id>', methods=['POST'])
+@login_required
+def delete_asset(asset_id):
+    asset = UserAsset.query.get_or_404(asset_id)
+    if asset.user_id == current_user.id:
+        db.session.delete(asset)
+        db.session.commit()
+        flash('已從清單中移除。', 'info')
+    return redirect(url_for('my_assets'))
+
 
 if __name__ == '__main__':
     app.run(debug=True)

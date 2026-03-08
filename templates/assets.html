@@ -3,7 +3,10 @@
 {% block content %}
 <div class="row">
     <div class="col-12">
-        <h2 class="mb-4">💰 我的資產與清單</h2>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>💰 我的資產與清單</h2>
+            <a href="{{ url_for('search') }}" class="btn btn-outline-primary">🔍 搜尋並加入新遊戲</a>
+        </div>
 
         <ul class="nav nav-tabs mb-3" id="assetTab" role="tablist">
             <li class="nav-item">
@@ -23,31 +26,50 @@
                                 <th>遊戲名稱</th>
                                 <th>購入價格</th>
                                 <th>當前分析</th>
-                            </tr>
+                                <th>操作</th> </tr>
                         </thead>
                         <tbody>
                             {% for asset in owned %}
                                 {% set res = asset.get_analysis() %}
-                                <tr class="table-{{ res.status }}">
+                                <tr>
                                     <td class="d-flex align-items-center">
                                         <div class="me-3">
-                                            <img src="{{ asset.game.cover_url if asset.game.cover_url else 'https://placehold.co/50x65?text=No+Img' }}" 
-                                                alt="{{ asset.game.name }}" 
-                                                class="rounded shadow-sm" 
-                                                style="width: 50px; height: 65px; object-fit: cover;">
+                                            <img src="{{ asset.game.cover_url }}" style="width: 45px; height: 60px; object-fit: cover;" class="rounded shadow-sm">
                                         </div>
                                         <div>
-                                            <div class="fw-bold">
-                                                {{ asset.game.chinese_name if asset.game.chinese_name else asset.game.name }}
-                                            </div>
-                                            {% if asset.game.chinese_name %}
-                                                <small class="text-muted d-block">{{ asset.game.name }}</small>
-                                            {% endif %}
+                                            <div class="fw-bold">{{ asset.game.chinese_name or asset.game.name }}</div>
                                         </div>
                                     </td>
-                                    <td>NT$ {{ asset.purchase_price }}</td>
+                                    <td class="fw-bold text-primary">NT$ {{ asset.purchase_price or '0' }}</td>
                                     <td>
                                         <span class="badge bg-{{ res.status }}">{{ res.reason }}</span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-link p-0 me-2" data-bs-toggle="modal" data-bs-target="#editOwned{{ asset.id }}">✏️ 編輯價格</button>
+                                        <form action="{{ url_for('delete_asset', asset_id=asset.id) }}" method="POST" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-link text-danger p-0" onclick="return confirm('確定要移除此紀錄嗎？')">🗑️ 移除</button>
+                                        </form>
+
+                                        <div class="modal fade" id="editOwned{{ asset.id }}" tabindex="-1">
+                                            <div class="modal-dialog">
+                                                <form class="modal-content text-dark" action="{{ url_for('edit_asset', asset_id=asset.id) }}" method="POST">
+                                                    <div class="modal-header">
+                                                        <h5 class="modal-title">編輯資產 - {{ asset.game.name }}</h5>
+                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <div class="modal-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label">實際購入價格 (TWD)</label>
+                                                            <input type="number" name="purchase_price" class="form-control" value="{{ asset.purchase_price or 0 }}">
+                                                        </div>
+                                                        <input type="hidden" name="status" value="owned">
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="submit" class="btn btn-primary w-100">儲存變更</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -57,40 +79,55 @@
             </div>
 
             <div class="tab-pane fade" id="wishlist" role="tabpanel">
-                <div class="card shadow-sm border-info">
+                <div class="card shadow-sm">
                     <table class="table mb-0 align-middle">
-                        <thead class="table-info">
+                        <thead class="table-light">
                             <tr>
                                 <th>遊戲名稱</th>
-                                <th>目標購入價</th>
-                                <th>目前 eShop</th>
-                                <th>狀態</th>
+                                <th>目標價格</th>
+                                <th>市場行情</th>
+                                <th>分析</th>
+                                <th>操作</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for asset in wishlist %}
                                 {% set res = asset.get_analysis() %}
                                 <tr>
-                                    <td class="d-flex align-items-center">
-                                        <div class="me-3">
-                                            <img src="{{ asset.game.cover_url if asset.game.cover_url else 'https://placehold.co/50x65?text=No+Img' }}" 
-                                                alt="{{ asset.game.name }}" 
-                                                class="rounded shadow-sm" 
-                                                style="width: 50px; height: 65px; object-fit: cover;">
-                                        </div>
-                                        <div>
-                                            <div class="fw-bold">
-                                                {{ asset.game.chinese_name if asset.game.chinese_name else asset.game.name }}
-                                            </div>
-                                            {% if asset.game.chinese_name %}
-                                                <small class="text-muted d-block">{{ asset.game.name }}</small>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                    <td>NT$ {{ asset.target_price or '未設定' }}</td>
-                                    <td class="text-primary fw-bold">NT$ {{ res.digital or 'N/A' }}</td>
+                                    <td>{{ asset.game.chinese_name or asset.game.name }}</td>
+                                    <td class="fw-bold">NT$ {{ asset.target_price or '未設定' }}</td>
+                                    <td class="text-primary">NT$ {{ res.digital or 'N/A' }}</td>
+                                    <td><span class="badge bg-{{ res.status }}">{{ res.reason }}</span></td>
                                     <td>
-                                        <span class="badge bg-{{ res.status }}">{{ res.reason }}</span>
+                                        <button class="btn btn-sm btn-link p-0 me-2" data-bs-toggle="modal" data-bs-target="#editWish{{ asset.id }}">✏️ 設定目標</button>
+                                        
+                                        <div class="modal fade" id="editWish{{ asset.id }}" tabindex="-1">
+                                            <div class="modal-dialog">
+                                                <form class="modal-content text-dark" action="{{ url_for('edit_asset', asset_id=asset.id) }}" method="POST">
+                                                    <div class="modal-header">
+                                                        <h5 class="modal-title">追蹤設定 - {{ asset.game.name }}</h5>
+                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <div class="modal-body text-start">
+                                                        <div class="mb-3">
+                                                            <label class="form-label">目標入手價 (TWD)</label>
+                                                            <input type="number" name="target_price" class="form-control" value="{{ asset.target_price or 0 }}">
+                                                            <div class="form-text">當二手行情或 eShop 低於此價格時會通知。</div>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label">變更狀態</label>
+                                                            <select name="status" class="form-select">
+                                                                <option value="wishlist" selected>留在願望清單</option>
+                                                                <option value="owned">已購買這款遊戲</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="submit" class="btn btn-primary w-100">確認更新</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
                                     </td>
                                 </tr>
                             {% endfor %}
