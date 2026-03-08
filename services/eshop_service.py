@@ -28,7 +28,7 @@ class EShopService:
         try:
             print(f"🚀 [Scraper] 正在以關鍵字獵殺: {search_query}...")
             # 使用 wait_until="load" 提升首次導航速度
-            page.goto(search_url, wait_until="load", timeout=5000)
+            page.goto(search_url, wait_until="load", timeout=20000)
             
             # 處理紅色阻擋彈窗
             # --- 關鍵修正：改為非阻塞檢查彈窗 ---
@@ -42,7 +42,7 @@ class EShopService:
                 pass # 沒出現就直接繼續，不要浪費 30 秒
             
             # 等待官方遊戲本體 ID 出現 ( titles/7001... )
-            page.wait_for_selector("a[href*='titles/7001']", timeout=5000)
+            page.wait_for_selector("a[href*='titles/7001']", timeout=20000)
             html = page.content()
             ids = re.findall(r'titles/(7001\d{10})', html)
             
