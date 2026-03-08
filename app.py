@@ -176,4 +176,7 @@ def delete_asset(asset_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # 直接使用頂部已經匯入的 os 模組
+    port = int(os.environ.get("PORT", 10000))
+    # 務必確保 host='0.0.0.0' 且 debug=False
+    app.run(host='0.0.0.0', port=port, debug=False)
