@@ -1,55 +1,51 @@
-from playwright.sync_api import sync_playwright
+import requests
 import re
 
-def get_nsuid_final_boss(game_name):
-    """
-    處理紅色彈窗，並從渲染後的 HTML 提取 titles/7001
-    """
-    with sync_playwright() as p:
-        # 設定 headless=False 讓你可以看到它點掉彈窗的過程
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context(viewport={"width": 1280, "height": 800})
-        page = context.new_page()
+def test_hk_eshop_v3(game_name):
+    # 改回正式搜尋網址，這是你在 .har 檔中看到的真實路徑
+    url = "https://store.nintendo.com.hk/eshopsearch/result/"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Upgrade-Insecure-Requests": "1"
+    }
+
+    params = {"q": game_name}
+
+    try:
+        print(f"📡 正在請求搜尋頁面: {game_name}")
+        # 使用 Session 可以維持 Cookie，比較不容易被擋
+        session = requests.Session()
+        response = session.get(url, params=params, headers=headers, timeout=15)
         
-        # 優先嘗試搜尋中文，因為截圖顯示中文結果最齊全
-        search_query = "巫師 3" if "Witcher" in game_name else game_name
-        search_url = f"https://store.nintendo.com.hk/eshopsearch/result/?q={search_query}"
+        if response.status_code != 200:
+            print(f"❌ 失敗，狀態碼: {response.status_code}")
+            return
+
+        # 直接從回傳的完整網頁 HTML 中抓取 NSUID
+        html_content = response.text
         
-        try:
-            print(f"🚀 正在獵殺：{search_query}...")
-            page.goto(search_url, wait_until="networkidle", timeout=60000)
+        # 尋找 7001 開頭的 14 位數字
+        nsuids = re.findall(r'7001\d{10}', html_content)
+        
+        if nsuids:
+            # 去重並過濾
+            nsuids = list(dict.fromkeys(nsuids))
+            print(f"✅ 成功獲取 NSUIDs: {nsuids}")
             
-            # --- 關鍵：處理紅色彈窗 ---
-            # 根據截圖，我們尋找彈窗上的「確認」按鈕
-            confirm_btn = page.locator('button:has-text("確認"), .btn-confirm, .modal-footer button')
-            if confirm_btn.count() > 0:
-                print("🖱️ 發現阻擋彈窗，正在點擊「確認」...")
-                confirm_btn.first.click()
-                page.wait_for_timeout(2000) # 等待彈窗消失
+            # 嘗試抓取產品圖片連結
+            images = re.findall(r'https://[^"]+product[^"]+\.jpg', html_content)
+            if images:
+                print(f"📸 發現圖片: {images[0]}")
+        else:
+            print("⚠️ 頁面載入成功，但裡面沒看到 NSUID。這可能是因為頁面需要 JS 渲染。")
             
-            # 等待遊戲內容加載 (你截圖中的那些遊戲圖片)
-            page.wait_for_selector(".product-item-info, a[href*='titles']", timeout=10000)
-            
-            # 抓取包含渲染後 ID 的所有連結
-            html = page.content()
-            ids = re.findall(r'titles/(7001\d{10})', html)
-            
-            if ids:
-                # 排除可能重複的 ID 並取第一個
-                nsuid = list(dict.fromkeys(ids))[0]
-                print(f"🎯 獵殺成功！NSUID: {nsuid}")
-                return nsuid
-            else:
-                print("❌ 彈窗已處理，但仍未發現遊戲本體 ID。")
-                page.screenshot(path="after_popup_debug.png")
-                return None
-                
-        except Exception as e:
-            print(f"💥 執行出錯: {e}")
-            return None
-        finally:
-            page.wait_for_timeout(3000) # 讓你看一眼成果再關閉
-            browser.close()
+    except Exception as e:
+        print(f"💥 發生錯誤: {e}")
 
 if __name__ == "__main__":
-    get_nsuid_final_boss("Witcher 3")
+    test_hk_eshop_v3("Persona 5")

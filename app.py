@@ -13,12 +13,21 @@ app = Flask(__name__)
 from services.main_service import MainManager
 manager = MainManager()
 
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-123456')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 
 # 設定 SQLite 資料庫路徑
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_PATH'] = os.path.join(basedir, 'database.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + app.config['SQLALCHEMY_DATABASE_PATH']
+#basedir = os.path.abspath(os.path.dirname(__file__))
+#app.config['SQLALCHEMY_DATABASE_PATH'] = os.path.join(basedir, 'database.db')
+#app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + app.config['SQLALCHEMY_DATABASE_PATH']
+#app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# RDS 資訊
+DB_USER = os.getenv('DB_USER')
+DB_PASS = os.getenv('DB_PASSWORD')
+DB_HOST = os.getenv('DB_HOST')
+DB_NAME = os.getenv('DB_NAME')
+
+app.config['SQLALCHEMY_DATABASE_URI'] = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:3306/{DB_NAME}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
@@ -26,10 +35,11 @@ db.init_app(app)
 # 開啟 SQLite 的 WAL 模式 (增強並發效能)
 with app.app_context():
     db.create_all()
+    print("✅ 成功連線到 AWS RDS！資料表已在雲端建立完成。")
     # 執行 WAL 模式指令
-    db.session.execute(db.text("PRAGMA journal_mode=WAL;"))
-    db.session.commit()
-    print("資料庫初始化完成，已開啟 WAL 模式！")
+    #db.session.execute(db.text("PRAGMA journal_mode=WAL;"))
+    #db.session.commit()
+    #print("資料庫初始化完成，已開啟 WAL 模式！")
 
 # 初始化 LoginManager
 login_manager = LoginManager()
@@ -176,7 +186,6 @@ def delete_asset(asset_id):
 
 
 if __name__ == '__main__':
-    # 直接使用頂部已經匯入的 os 模組
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 5000))
     # 務必確保 host='0.0.0.0' 且 debug=False
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)
