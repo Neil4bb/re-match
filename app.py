@@ -81,10 +81,20 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user = User.query.filter_by(username=request.form.get('username')).first()
-        if user and user.check_password(request.form.get('password')):
-            login_user(user) # 建立 Session
-            return redirect(url_for('index'))
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user = User.query.filter_by(username=username).first()
+        
+        if user:
+            # 檢查密碼比對
+            is_correct = user.check_password(password)
+            print(f"DEBUG: 使用者 {username} 存在, 密碼比對結果: {is_correct}")
+            if is_correct:
+                login_user(user)
+                return redirect(url_for('index'))
+        else:
+            print(f"DEBUG: 找不到使用者 {username}")
+            
         flash('帳號或密碼錯誤')
     return render_template('login.html')
 
@@ -125,27 +135,28 @@ def my_assets():
 
     return render_template('assets.html', owned=owned , wishlist=wishlist)
 
-@app.route('/add-to-assets/<int:game_id>')
-@login_required # 確保只有登入者能執行此動作
+# 修改為同時支援 GET (原本的跳轉) 與 POST (JS 請求)
+@app.route('/add_to_assets/<int:game_id>', methods=['GET', 'POST'])
+@login_required
 def add_to_assets(game_id):
-    # 1. 檢查該遊戲是否已存在於該使用者的清單中
     exists = UserAsset.query.filter_by(user_id=current_user.id, game_id=game_id).first()
     
-    if exists:
-        flash('此遊戲已在你的追蹤清單中囉！')
-    else:
-        # 2. 建立新的關聯紀錄，預設為願望清單 (wishlist)
+    if not exists:
         new_asset = UserAsset(
             user_id=current_user.id,
             game_id=game_id,
             status='wishlist',
-            platform='Switch'  # 預設平台
+            platform='Switch'
         )
         db.session.add(new_asset)
         db.session.commit()
-        flash('成功加入願望清單！')
     
-    # 3. 完成後導回首頁
+    # --- 關鍵修正：判斷請求方式 ---
+    if request.method == 'POST':
+        return '', 200 # 讓 JS 收到 OK 訊號
+    
+    # 這是給原本點擊連結的使用者導向用的
+    flash('成功加入願望清單！')
     return redirect(url_for('index'))
 
 # --- 請將以下路由加入到 app.py 中 (建議放在 add_to_assets 之後) ---

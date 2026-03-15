@@ -52,39 +52,59 @@ class IGDBService:
             'Authorization': f'Bearer {self.access_token}'
         }
 
-        # 定義我們要的平台 ID 清單 (PS4, Switch, PS5, Switch2)
-        target_ids_priority = [48, 130, 167, 465]
-        target_platforms_str = "(48, 130, 167, 465)"
+        # 定義目標平台
+        target_platforms = "(48, 130, 167, 465)"
+        target_ids = [48, 130, 167, 465]
         
-        # 查詢語法：抓取名稱、封面、平台名稱
-        # 修正後的 Query Body：
-        # 1. 增加 where platforms = ... 條件
-        # 2. 只有當遊戲有在這些平台發布時，才會被搜出來
-        body = f'search "{game_name}"; fields name, cover.url, platforms.name, alternative_names.name; where platforms = {target_platforms_str}; limit 5;'
+       # --- 第一階段：精準搜尋 + 平台過濾 ---
+        # 加入 where platforms = ... 確保回傳結果皆符合平台要求
+        body = f"""
+        search "{game_name}"; 
+        fields name, cover.url, platforms.name, alternative_names.name, summary; 
+        where platforms = {target_platforms}; 
+        limit 10;
+        """
         
         try:
             response = requests.post(search_url, headers=headers, data=body)
-            response.raise_for_status()
             raw_games = response.json()
+            
+            # --- 第二階段：模糊比對 + 平台過濾 ---
+            # 如果精準搜尋沒結果，改用「包含模式」，同樣強制過濾平台
+            if not raw_games and len(game_name) >= 1:
+                print(f"🔍 模式切換：針對 '{game_name}' 執行模糊過濾並鎖定平台...")
+                body = f"""
+                fields name, cover.url, platforms.name, alternative_names.name; 
+                where (name ~ *"{game_name}"* | alternative_names.name ~ *"{game_name}"*) 
+                & platforms = {target_platforms}; 
+                limit 10;
+                """
+                response = requests.post(search_url, headers=headers, data=body)
+                raw_games = response.json()
 
             # --- 資料清洗與標準化 ---
             for game in raw_games:
-                chinese_name = ""
-                if 'alternative_names' in game:
-                    # 1. 先找出所有包含中文的別名
-                    all_chinese_alts = []
-                    for alt in game['alternative_names']:
-                        alt_n = alt.get('name', '')
-                        if any('\u4e00' <= char <= '\u9fff' for char in alt_n):
-                            all_chinese_alts.append(alt_n)
-                    
-                    if all_chinese_alts:
-                        # 2. 假設我們優先取第一個抓到的
-                        # 3. 強制轉換為繁體中文，解決簡繁混雜問題
-                        raw_chinese = all_chinese_alts[0]
-                        chinese_name = cc.convert(raw_chinese)
+                # ---平台 ---
+                platforms = game.get('platforms', [])
+                matched_names = [p['name'] for p in platforms if p.get('id') in target_ids]
+                game['platform_name'] = " / ".join(matched_names)
+
+                # 初始化預設值
+                game['chinese_name'] = ""
                 
-                game['chinese_name'] = chinese_name
+                # 優先從別名找中文
+                if 'alternative_names' in game:
+                    alts = [alt.get('name', '') for alt in game['alternative_names']]
+                    # 這裡多加一個判斷：如果別名包含 game_name 或者是中文
+                    for alt_n in alts:
+                        if any('\u4e00' <= char <= '\u9fff' for char in alt_n):
+                            game['chinese_name'] = cc.convert(alt_n)
+                            break
+                
+                # 如果 IGDB 根本沒給中文別名，我們試著看搜尋字串是否就是中文
+                if not game['chinese_name'] and any('\u4e00' <= char <= '\u9fff' for char in game_name):
+                    # 如果使用者搜的是中文，且結果的名稱與搜尋詞有部分重疊，就暫時當作中文名
+                    game['chinese_name'] = cc.convert(game_name)
                 
                 # 處理圖片：補上 https 並換成大圖 t_cover_big
                 if 'cover' in game and 'url' in game['cover']:
@@ -94,16 +114,6 @@ class IGDBService:
                     # 給一個漂亮的預留圖網址
                     game['cover_url'] = "https://placehold.co/264x352?text=No+Cover"
                 
-                # 處理平台：平台顯示校正
-                if 'platforms' in game:
-                    # 找出所有匹配我們 target_ids 的平台名稱
-                    matched_names = [p['name'] for p in game['platforms'] if p.get('id') in target_ids_priority]
-                    
-                    if matched_names:
-                        # 將它們串接成字串，例如 "PS4, Nintendo Switch"
-                        game['platform_name'] = " / ".join(matched_names)
-                    else:
-                        game['platform_name'] = game['platforms'][0].get('name', 'Unknown')
 
             return raw_games
         except Exception as e:
@@ -114,7 +124,7 @@ class IGDBService:
 if __name__ == "__main__":
     service = IGDBService()
     # 測試搜尋 Zelda
-    results = service.search_game("巫師3")
+    results = service.search_game("巫")
     print(results)
     for game in results:
         print(f"遊戲名稱: {game['name']}")

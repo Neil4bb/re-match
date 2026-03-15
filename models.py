@@ -3,107 +3,116 @@ from datetime import datetime
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
-
-# 1. 遊戲標準資料表 (Master Games)
+# ----------------------------------------------------------------
+# 1. 遊戲標準資料表 (整合多平台支援與模糊搜尋索引)
+# ----------------------------------------------------------------
 class Game(db.Model):
     __tablename__ = 'games'
-    id = db.Column(db.Integer, primary_key=True)  # IGDB ID
-    name = db.Column(db.String(200), nullable=False) # 英文原名
-    chinese_name = db.Column(db.String(200)) # 中文譯名
-    platform = db.Column(db.String(50))
+    id = db.Column(db.Integer, primary_key=True)  # 使用 IGDB ID
+    name = db.Column(db.String(200), nullable=False, index=True) 
+    chinese_name = db.Column(db.String(200), index=True)
     cover_url = db.Column(db.String(500))
-    eshop_nsuid = db.Column(db.String(20), nullable=True)
-    historical_low = db.Column(db.Float, default=0)
-    # 關聯：一個遊戲可以有多個行情紀錄
-    prices = db.relationship('MarketPrice', backref='game', lazy=True)
-    user_assets = db.relationship('UserAsset',backref='game', lazy=True)
+    summary = db.Column(db.Text)
+    
+    # 關聯：一個遊戲對應多個平台的識別碼 (例如 NSUID, PS_Store_ID)
+    platform_ids = db.relationship('GamePlatformID', backref='game', lazy=True, cascade="all, delete-orphan")
+    # 關聯：一個遊戲有多個來源價格
+    prices = db.relationship('MarketPrice', backref='game', lazy=True, cascade="all, delete-orphan")
+    # 關聯：被哪些使用者收藏或持有
+    user_assets = db.relationship('UserAsset', backref='game', lazy=True)
 
-    def get_market_analysis(self):
-        """利用 relationship 進行記憶體內過濾，不再重複 query"""
-        # 1. 從關聯好的 prices 中挑出資料，並按時間排序 (created_at)
-        # 我們直接對 self.prices 這個 list 進行操作
+    def get_market_analysis(self, target_platform='Switch'):
+        """自動根據指定的平台進行數位 vs 實體的分析"""
         sorted_prices = sorted(self.prices, key=lambda p: p.created_at, reverse=True)
         
-        # 2. 找出最新的一筆 eShop 與 PTT 紀錄
-        latest_eshop = next((p for p in sorted_prices if p.source == 'eShop'), None)
-        # 注意：這裡修正為 'PTT'，對位你的爬蟲來源
+        # 動態決定數位商店來源
+        digital_source = 'eShop' if target_platform == 'Switch' else 'PS_Store'
+        if target_platform == 'Xbox': digital_source = 'Xbox_Store'
+
+        latest_digital = next((p for p in sorted_prices if p.source == digital_source), None)
         latest_ptt = next((p for p in sorted_prices if p.source == 'PTT'), None)
         
-        e_price = latest_eshop.price if latest_eshop else None
+        d_price = latest_digital.price if latest_digital else None
         r_price = latest_ptt.price if latest_ptt else None
         
-        # 3. 計算建議 (維持你原本的邏輯)
         suggestion = "資料不足"
         diff = 0
-        if e_price and r_price:
-            diff = r_price - e_price
+        if d_price and r_price:
+            diff = r_price - d_price
             suggestion = "推薦買數位版" if diff > 0 else "推薦買實體版"
             
         return {
-            'eshop': e_price or "N/A",   # 確保沒資料時回傳前端等待的 "N/A"
-            'retail': r_price or "N/A",  # 對齊 index.html 的 analysis.retail
+            'digital_price': d_price or "N/A",
+            'retail_price': r_price or "N/A",
             'suggestion': suggestion,
             'diff': abs(diff),
-            'has_both': e_price is not None and r_price is not None,
-            'is_digital_cheaper': diff > 0
+            'has_both': d_price is not None and r_price is not None
         }
-    
-# 2. 市場行情紀錄表 (Market Prices)
+
+# ----------------------------------------------------------------
+# 2. 平台外部 ID 表 (例如：Switch 用 NSUID, PS 用 ProductID)
+# ----------------------------------------------------------------
+class GamePlatformID(db.Model):
+    __tablename__ = 'game_platform_ids'
+    id = db.Column(db.Integer, primary_key=True)
+    game_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=False)
+    platform = db.Column(db.String(50), nullable=False) # 'Switch', 'PS5'
+    external_id = db.Column(db.String(100)) # 存 NSUID 或其他 ID
+
+# ----------------------------------------------------------------
+# 3. 市場行情紀錄表 (加入 Platform 欄位區分平台價格)
+# ----------------------------------------------------------------
 class MarketPrice(db.Model):
     __tablename__ = 'market_prices'
     id = db.Column(db.Integer, primary_key=True)
     game_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=False)
+    platform = db.Column(db.String(50), default="Switch") # 區分這筆錢是哪家的
     price = db.Column(db.Integer, nullable=False)
-    source = db.Column(db.String(50), default="PTT") # 預設為 PTT，未來可擴充
-    source_url = db.Column(db.String(500)) # 存下 PTT 貼文的網址，方便以後檢驗真偽
-    title = db.Column(db.String(200)) # 額外保留原始標題，這對「預警系統」除錯很有幫助
+    source = db.Column(db.String(50)) # 'eShop', 'PTT', 'PS_Store'
+    source_url = db.Column(db.String(500))
+    title = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# ----------------------------------------------------------------
+# 4. 使用者與資產 (維持 User 與 UserAsset 的關聯邏輯)
+# ----------------------------------------------------------------
 class User(db.Model, UserMixin):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
-    
-    # 與資產建立連結：透過 current_user.assets 即可抓到該使用者的所有 UserAsset
+    password_hash = db.Column(db.String(256), nullable=False)
     assets = db.relationship('UserAsset', backref='owner', lazy=True)
 
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+    def set_password(self, password): self.password_hash = generate_password_hash(password)
+    def check_password(self, password): return check_password_hash(self.password_hash, password)
 
 class UserAsset(db.Model):
     __tablename__ = 'user_assets'
     id = db.Column(db.Integer, primary_key=True)
-    
-    # 關鍵：新增 User 關聯
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     game_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=False)
     
     platform = db.Column(db.String(20), nullable=False, default='Switch') 
-    status = db.Column(db.String(20), nullable=False, default='owned') # 'owned' 或 'wishlist' 
-    
+    status = db.Column(db.String(20), nullable=False, default='owned') 
     purchase_price = db.Column(db.Integer) 
     target_price = db.Column(db.Integer) 
-    alert_threshold = db.Column(db.Float, default=0.2) 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def get_analysis(self):
-        """核心邏輯封裝：針對持有或願望清單回傳不同建議"""
-        # 1. 抓取最新價格
-        # 注意：這裡改用 self.game.prices 存取，前提是 Game 模型有定義 relationship
+        """強化版資產分析：自動判斷所屬平台的數位商店"""
+        # 取得最新 PTT 價格
         ptt_price = next((p.price for p in reversed(self.game.prices) if p.source == 'PTT'), None)
+        
+        # 根據平台動態抓數位價格
         target_src = 'eShop' if self.platform == 'Switch' else 'PS_Store'
+        if self.platform == 'Xbox': target_src = 'Xbox_Store'
+        
         digital_price = next((p.price for p in reversed(self.game.prices) if p.source == target_src), None)
         
-        status = "success" 
+        status = "success"
         reason = "狀態良好"
         
-        # 2. 判定邏輯 (區分狀態)
         if self.status == 'owned':
-            # 已持有時的預警邏輯 (維持你原本的邏輯)
             loss_threshold = (self.purchase_price or 0) * 0.7
             if digital_price and ptt_price and digital_price < ptt_price:
                 status = "danger"
@@ -111,14 +120,12 @@ class UserAsset(db.Model):
             elif ptt_price and ptt_price < loss_threshold:
                 status = "warning"
                 reason = "殘值跌破 70%"
-        
         elif self.status == 'wishlist':
-            # 願望清單邏輯：價格跌破目標價時給予提示
             if ptt_price and self.target_price and ptt_price <= self.target_price:
                 status = "info"
                 reason = f"實體版已達標！目前 NT$ {int(ptt_price)}"
             elif digital_price and self.target_price and digital_price <= self.target_price:
-                status = "info" # 建議買入
+                status = "info"
                 reason = f"數位版已達標！目前 NT$ {int(digital_price)}"
             else:
                 reason = "等待特價中"
