@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from extensions import db
 from models import db, Game, MarketPrice, User, UserAsset
@@ -121,6 +121,19 @@ def search():
     
     # 3. 將結果丟給 HTML 範本渲染
     return render_template('search_results.html', games=results, query=query)
+
+@app.route('/api/market/<int:game_id>')
+def api_get_market_price(game_id):
+    try:
+        # 呼叫 manager 執行爬蟲邏輯
+        market_data = manager.get_single_game_market_data(game_id)
+        if not market_data:
+            return jsonify({"error": "Unable to fetch prices"}), 404
+            
+        return jsonify(market_data)
+    except Exception as e:
+        print(f"❌ Market API Error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # --- 資產頁：僅顯示已購遊戲 ---
 @app.route('/my-assets')

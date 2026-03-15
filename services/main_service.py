@@ -3,11 +3,13 @@ from models import Game, GamePlatformID, MarketPrice, UserAsset
 from services.igdb_service import IGDBService
 from services.eshop_service import EShopService
 from flask import current_app
+from services.ptt_service import PttAdapter
 
 class MainManager:
     def __init__(self):
         self.igdb = IGDBService()
         self.eshop = EShopService()
+        self.ptt = PttAdapter()
 
     def store_game_logic(self, item):
         game = db.session.get(Game, item['id'])
@@ -38,8 +40,7 @@ class MainManager:
         return game
 
     def search_and_store_game(self, keyword):
-        from services.ptt_service import PttAdapter
-        ptt = PttAdapter()
+        
         raw_results = self.igdb.search_game(keyword)
         if not raw_results: return []
         
@@ -111,8 +112,17 @@ class MainManager:
             
             # B. 處理 PTT (查價)
             search_query = game.chinese_name if game.chinese_name else game.name
-            ptt_results = self.ptt.search_game_prices(search_query) # 假設已在 __init__ 實例化
-            # ... 存入 MarketPrice 的邏輯 ...
+            try:
+                # 使用我們在 __init__ 定義好的 self.ptt
+                ptt_results = self.ptt.search_game_prices(search_query) 
+                for r in ptt_results:
+                    # 檢查是否已存過同標題的價格，避免重複
+                    if not MarketPrice.query.filter_by(game_id=game.id, title=r['title']).first():
+                        new_ptt = MarketPrice(game_id=game.id, price=r['price'], source='PTT', title=r['title'])
+                        db.session.add(new_ptt)
+                db.session.commit()
+            except Exception as e:
+                print(f"⚠️ PTT 抓取失敗: {e}")
             
             latest_ptt = MarketPrice.query.filter_by(game_id=game.id, source='PTT')\
                 .order_by(MarketPrice.created_at.desc()).first()
@@ -123,8 +133,7 @@ class MainManager:
             }
 
     def update_tracked_market_data(self):
-        from services.ptt_service import PttAdapter
-        ptt = PttAdapter()
+        
         with current_app.app_context():
             tracked_games = Game.query.join(UserAsset).distinct().all()
             for game in tracked_games:
@@ -141,7 +150,7 @@ class MainManager:
                     self.eshop.get_price_twd(game.id, p_rec.external_id)
 
                 search_query = game.chinese_name if game.chinese_name else game.name
-                ptt_results = ptt.search_game_prices(search_query) 
+                ptt_results = self.ptt.search_game_prices(search_query) 
                 for r in ptt_results:
                     if not MarketPrice.query.filter_by(game_id=game.id, title=r['title']).first():
                         new_price = MarketPrice(game_id=game.id, price=r['price'], source='PTT', title=r['title'])
