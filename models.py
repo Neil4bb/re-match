@@ -27,7 +27,6 @@ class Game(db.Model):
         
         # 動態決定數位商店來源
         digital_source = 'eShop' if target_platform == 'Switch' else 'PS_Store'
-        if target_platform == 'Xbox': digital_source = 'Xbox_Store'
 
         latest_digital = next((p for p in sorted_prices if p.source == digital_source), None)
         latest_ptt = next((p for p in sorted_prices if p.source == 'PTT'), None)
@@ -42,8 +41,8 @@ class Game(db.Model):
             suggestion = "推薦買數位版" if diff > 0 else "推薦買實體版"
             
         return {
-            'digital_price': d_price or "N/A",
-            'retail_price': r_price or "N/A",
+            'eshop': d_price or "N/A",
+            'retail': r_price or "N/A",
             'suggestion': suggestion,
             'diff': abs(diff),
             'has_both': d_price is not None and r_price is not None
