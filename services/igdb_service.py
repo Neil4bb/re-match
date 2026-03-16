@@ -92,18 +92,40 @@ class IGDBService:
                 # 初始化預設值
                 game['chinese_name'] = ""
                 
-                # 優先從別名找中文
                 if 'alternative_names' in game:
-                    alts = [alt.get('name', '') for alt in game['alternative_names']]
-                    # 這裡多加一個判斷：如果別名包含 game_name 或者是中文
-                    for alt_n in alts:
-                        if any('\u4e00' <= char <= '\u9fff' for char in alt_n):
-                            game['chinese_name'] = cc.convert(alt_n)
+                    alts = game.get('alternative_names', [])
+                    
+                    # 💡 策略：建立一個「絕對排除」的簡體關鍵字清單
+                    exclude_keywords = ['simplified', 'china', 'mainland']
+                    # 針對特定譯名差異建立排除詞
+                    exclude_names = ['塞尔达', '精靈寶可夢', '马力欧'] 
+
+                    # 第一輪：尋找明確標註繁體、台灣或香港的別名
+                    for alt in alts:
+                        name = alt.get('name', '')
+                        comment = alt.get('comment', '').lower()
+                        if any(tag in comment for tag in ['traditional', 'taiwan', 'hong kong', '繁體', '台灣']):
+                            game['chinese_name'] = cc.convert(name)
                             break
+                    
+                    # 第二輪：如果沒找到標註，找「不含簡體關鍵字」且「不含排除詞」的中文別名
+                    if not game['chinese_name']:
+                        for alt in alts:
+                            name = alt.get('name', '')
+                            comment = alt.get('comment', '').lower()
+                            
+                            # 檢查是否包含中文字元
+                            has_chinese = any('\u4e00' <= char <= '\u9fff' for char in name)
+                            # 檢查是否觸發排除條件
+                            is_simplified = any(k in comment for k in exclude_keywords)
+                            is_excluded_name = any(en in name for en in exclude_names)
+                            
+                            if has_chinese and not is_simplified and not is_excluded_name:
+                                game['chinese_name'] = cc.convert(name)
+                                break
                 
-                # 如果 IGDB 根本沒給中文別名，我們試著看搜尋字串是否就是中文
+                # 如果以上都沒抓到，最後才考慮搜尋關鍵字
                 if not game['chinese_name'] and any('\u4e00' <= char <= '\u9fff' for char in game_name):
-                    # 如果使用者搜的是中文，且結果的名稱與搜尋詞有部分重疊，就暫時當作中文名
                     game['chinese_name'] = cc.convert(game_name)
                 
                 # 處理圖片：補上 https 並換成大圖 t_cover_big
@@ -124,10 +146,11 @@ class IGDBService:
 if __name__ == "__main__":
     service = IGDBService()
     # 測試搜尋 Zelda
-    results = service.search_game("巫")
+    results = service.search_game("薩爾達傳說")
     print(results)
     for game in results:
         print(f"遊戲名稱: {game['name']}")
+        print(f"遊戲名稱: {game['chinese_name']}")
         print(f"封面網址: {game['cover_url']}")
         print(f"平台: {game['platform_name']}")
         print("-" * 20)
