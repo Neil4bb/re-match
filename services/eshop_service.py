@@ -44,22 +44,31 @@ class EShopService:
         try:
             print(f"📡 [EShop Search] 正在請求關鍵字: {search_query}")
             session = requests.Session()
-            # 使用動態 Headers
             response = session.get(url, params={"q": search_query}, headers=self._get_headers(), timeout=15)
             
             if response.status_code == 200:
                 html_content = response.text
+                
+                # 1. 抓取 NSUID
                 nsuids = re.findall(r'7001\d{10}', html_content)
+                
+                # 2. 抓取官方名稱 (利用正則表達式定位連結文字)
+                # 尋找 <a class="product-item-link" ...> 這裡面的文字
+                title_match = re.search(r'class="product-item-link">\s*(.*?)\s*</a>', html_content, re.DOTALL)
+                eshop_title = title_match.group(1).strip() if title_match else None
+
                 if nsuids:
                     nsuid = list(dict.fromkeys(nsuids))[0]
-                    print(f"✅ [EShop Result] 成功獲取 NSUID: {nsuid}")
-                    return nsuid
+                    print(f"✅ [EShop Result] 成功獲取: {eshop_title} ({nsuid})")
+                    # 🚀 重要：改回傳字典格式
+                    return {
+                        "nsuid": nsuid,
+                        "eshop_name": eshop_title
+                    }
                 else:
                     print(f"❌ [EShop Result] 搜尋失敗：HTML 中找不到 7001 ID")
             elif response.status_code == 429:
-                print("⚠️ [EShop Alert] 觸發 429 Too Many Requests，建議停止操作。")
-            else:
-                print(f"❌ [EShop Result] HTTP 請求失敗，狀態碼: {response.status_code}")
+                print("⚠️ [EShop Alert] 觸發 429 流量限制")
         except Exception as e:
             print(f"💥 [EShop Error] 發生異常: {e}")
         return None

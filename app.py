@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_migrate import Migrate
 from extensions import db
 from models import db, Game, MarketPrice, User, UserAsset
 import os
@@ -9,6 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+
+migrate = Migrate(app, db)
 
 from services.main_service import MainManager
 manager = MainManager()

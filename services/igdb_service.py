@@ -141,6 +141,39 @@ class IGDBService:
         except Exception as e:
             print(f"Search failed: {e}")
             return []
+        
+    def get_popular_switch_games(self, limit=500, offset=0):
+            """獲取遊戲清單 (終極相容版：移除所有過濾條件進行測試)"""
+            if not self.access_token:
+                self.get_access_token()
+            if not self.access_token:
+                return []
+
+            search_url = "https://api.igdb.com/v4/games"
+            headers = {
+                'Client-ID': self.client_id,
+                'Authorization': f'Bearer {self.access_token}'
+            }
+
+            # 終極測試：完全不設 where，看能不能抓到任何東西
+            # 如果這有反應，我們再慢慢把 platforms = (130) 加回去
+            body = f"fields name, id; limit {limit}; offset {offset};"
+            
+            try:
+                # 使用 print 偵錯，確保我們送出的 body 長什麼樣
+                print(f"DEBUG: Sending Body -> {body}")
+                response = requests.post(search_url, headers=headers, data=body)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"DEBUG: IGDB 成功回傳 {len(data)} 筆遊戲")
+                    return data
+                else:
+                    print(f"❌ IGDB API 錯誤: {response.status_code} - {response.text}")
+                    return []
+            except Exception as e:
+                print(f"💥 請求異常: {e}")
+                return []
 
 # --- 測試代碼 (當你直接執行此檔案時才會跑) ---
 if __name__ == "__main__":

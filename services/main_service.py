@@ -4,6 +4,7 @@ from services.igdb_service import IGDBService
 from services.eshop_service import EShopService
 from flask import current_app
 from services.ptt_service import PttAdapter
+from models import EShopMapping
 
 class MainManager:
     def __init__(self):
@@ -102,14 +103,43 @@ class MainManager:
             game = db.session.get(Game, game_id)
             if not game: return None
             
-            # A. 處理 eShop (抓 ID + 查價)
-            platform_rec = GamePlatformID.query.filter_by(game_id=game_id, platform='Switch').first()
-            if not platform_rec.external_id:
-                platform_rec.external_id = self.eshop.search_nsuid(game.name, game.chinese_name)
+            # 1. 先確認該遊戲在 Switch 平台的紀錄
+            p_rec = GamePlatformID.query.filter_by(game_id=game_id, platform='Switch').first()
+            
+            # 如果連平台紀錄都沒有，先建立一個空殼（確保後續可以存 external_id）
+            if not p_rec:
+                p_rec = GamePlatformID(game_id=game_id, platform='Switch')
+                db.session.add(p_rec)
                 db.session.commit()
-            
-            eshop_price = self.eshop.get_price_twd(game.id, platform_rec.external_id) if platform_rec.external_id else "N/A"
-            
+
+            nsuid = p_rec.external_id
+
+            # 2. 核心邏輯：如果沒有 NSUID，則進入「緩存優先」搜尋流程
+            if not nsuid:
+                # A. 優先從 EShopMapping 尋找 (這張表是我們導入的 2000 筆名單)
+                mapping = EShopMapping.query.filter_by(igdb_id=game_id).first()
+                
+                if mapping and mapping.nsuid:
+                    # 命中快取！直接拿來用
+                    nsuid = mapping.nsuid
+                    print(f"🎯 從 Mapping 表命中快取: {game.name} -> {nsuid}")
+                else:
+                    # B. Mapping 也沒資料，才動態爬取 eShop (最後保底)
+                    print(f"🕵️ Mapping 無紀錄，即時搜尋 eShop: {game.name}")
+                    result = self.eshop.search_nsuid(game.name, game.chinese_name)
+                    if result and isinstance(result, dict):
+                        nsuid = result.get('nsuid')
+                        # 同步回 Mapping 表與 Game 表 (反抓中文名)
+                        self._sync_eshop_data_back(game, mapping, result)
+                
+                # 寫回 GamePlatformID，這樣下次連 Mapping 都不用查，直接讀 p_rec.external_id
+                if nsuid:
+                    p_rec.external_id = nsuid
+                    db.session.commit()
+
+            # 3. 根據最終拿到的 nsuid 查價
+            eshop_price = self.eshop.get_price_twd(game.id, nsuid) if nsuid else "N/A"
+
             # B. 處理 PTT (查價)
             search_query = game.chinese_name if game.chinese_name else game.name
             try:
@@ -144,8 +174,12 @@ class MainManager:
                     db.session.add(p_rec)
 
                 if not p_rec.external_id:
-                    p_rec.external_id = self.eshop.search_nsuid(game.name, game.chinese_name)
-                
+                    # --- 關鍵修正處 ---
+                    result = self.eshop.search_nsuid(game.name, game.chinese_name)
+                    if result and isinstance(result, dict):
+                        p_rec.external_id = result.get('nsuid')
+                    # ------------------
+
                 if p_rec.external_id:
                     self.eshop.get_price_twd(game.id, p_rec.external_id)
 
