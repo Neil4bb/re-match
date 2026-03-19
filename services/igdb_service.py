@@ -61,8 +61,7 @@ class IGDBService:
         body = f"""
         search "{game_name}"; 
         fields name, cover.url, platforms.name, alternative_names.name, summary; 
-        where platforms = {target_platforms}; 
-        limit 10;
+        limit 5;
         """
         
         try:
@@ -71,14 +70,10 @@ class IGDBService:
             
             # --- 第二階段：模糊比對 + 平台過濾 ---
             # 如果精準搜尋沒結果，改用「包含模式」，同樣強制過濾平台
-            if not raw_games and len(game_name) >= 1:
-                print(f"🔍 模式切換：針對 '{game_name}' 執行模糊過濾並鎖定平台...")
-                body = f"""
-                fields name, cover.url, platforms.name, alternative_names.name; 
-                where (name ~ *"{game_name}"* | alternative_names.name ~ *"{game_name}"*) 
-                & platforms = {target_platforms}; 
-                limit 10;
-                """
+
+            if not raw_games:
+                print(f"🔍 模式切換：執行模糊比對...")
+                body = f'fields name, cover.url, platforms.name, alternative_names.name; where name ~ *"{game_name}"*; limit 5;'
                 response = requests.post(search_url, headers=headers, data=body)
                 raw_games = response.json()
 
@@ -87,7 +82,7 @@ class IGDBService:
                 # ---平台 ---
                 platforms = game.get('platforms', [])
                 matched_names = [p['name'] for p in platforms if p.get('id') in target_ids]
-                game['platform_name'] = " / ".join(matched_names)
+                game['platform'] = " / ".join(matched_names)
 
                 # 初始化預設值
                 game['chinese_name'] = ""

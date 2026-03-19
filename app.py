@@ -110,33 +110,59 @@ def logout():
 
 
 
-
 @app.route('/search')
 def search():
-    # 1. 從網址列抓取搜尋詞 (例如 /search?q=Zelda)
     query = request.args.get('q', '') 
     
     results = []
     if query:
-        # 2. 呼叫指揮官執行搜尋、過濾、並存入資料庫
-        # 這會回傳一個包含 Game 物件的列表
-        results = manager.search_and_store_game(query)
+        # 1. 呼叫我們新寫的「智慧搜尋」，它會回傳字典清單
+        results = manager.search_games(query)
+        
+        # 2. 選配：如果你希望「搜到就存」的舊行為不變
+        # 你可以對 results 做迴圈呼叫 store_game_logic
+        # 但我建議不要，讓「點擊詳情」去觸發儲存會更流暢。
     
-    # 3. 將結果丟給 HTML 範本渲染
     return render_template('search_results.html', games=results, query=query)
 
-@app.route('/api/market/<int:game_id>')
-def api_get_market_price(game_id):
+
+# app.py
+
+@app.route('/api/market/<game_id>')
+def get_market_api(game_id):
+    nsuid = request.args.get('nsuid')
+    name = request.args.get('name')
+    clean_id = str(game_id).strip().lower()
+
+    print(f"📡 收到查價請求: ID={game_id}, NSUID={nsuid}, Name={name}")
+
     try:
-        # 呼叫 manager 執行爬蟲邏輯
-        market_data = manager.get_single_game_market_data(game_id)
-        if not market_data:
-            return jsonify({"error": "Unable to fetch prices"}), 404
-            
-        return jsonify(market_data)
+        # 情況 1: 如果 game_id 是純數字 (已有綁定 ID)
+        if clean_id.isdigit():
+            # 🌟 關鍵修改：呼叫時必須把抓到的 nsuid 傳進去！
+            data = manager.get_single_game_market_data(int(clean_id), nsuid=nsuid, name=name)
+            return jsonify(data)
+
+        # 情況 2: 如果 game_id 是 'none' 或 'null' (需要自動綁定)
+        if clean_id in ['none', 'null', '']:
+            if nsuid and name:
+                print(f"🔗 正在為 {name} 執行自動綁定...")
+                game = manager.find_and_store_single_game(name, nsuid)
+                if game:
+                    # 🌟 關鍵修改：綁定後查價也要帶 nsuid
+                    data = manager.get_single_game_market_data(game.id, nsuid=nsuid, name=name)
+                    data.update({
+                        'new_game_id': game.id,
+                        'status': 'success'
+                    })
+                    return jsonify(data)
+            return jsonify({'status': 'error', 'message': '找不到 NSUID 或名稱'}), 400
+
     except Exception as e:
-        print(f"❌ Market API Error: {e}")
-        return jsonify({"error": str(e)}), 500
+        # ... 你的錯誤處理邏輯 ...
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    return jsonify({'status': 'error', 'message': '無效的請求格式'}), 400
 
 # --- 資產頁：僅顯示已購遊戲 ---
 @app.route('/my-assets')

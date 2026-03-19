@@ -35,32 +35,37 @@
                     <p class="card-text small text-secondary mb-2">
                         <span class="badge bg-light text-dark border">{{ game.platform }}</span>
                     </p>
-
-                    <div id="price-info-{{ game.id }}" class="small mb-2 d-none">
-                        <div class="d-flex justify-content-between">
-                            <span class="text-muted">eShop:</span>
-                            <span id="eshop-{{ game.id }}" class="fw-bold text-primary">--</span>
+                    
+                    <div class="mt-auto">
+                        <div id="price-info-{{ game.id }}" class="small mb-2 d-none price-info-area">
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">eShop:</span>
+                                <span id="eshop-{{ game.id }}" class="fw-bold text-primary eshop-price">--</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">PTT:</span>
+                                <span id="ptt-{{ game.id }}" class="fw-bold text-success ptt-price">--</span>
+                            </div>
                         </div>
-                        <div class="d-flex justify-content-between">
-                            <span class="text-muted">PTT:</span>
-                            <span id="ptt-{{ game.id }}" class="fw-bold text-success">--</span>
+
+                        <div class="d-flex align-items-center">
+                            <button id="btn-query-{{ game.id }}" 
+                                    data-nsuid="{{ game.nsuid }}"
+                                    data-name="{{ game.name }}"
+                                    onclick="fetchMarketPrice('{{ game.id }}', this, event)" 
+                                    class="btn btn-primary btn-sm px-3 me-2">
+                                🔍 查詢行情
+                            </button>
+                            
+                            <button onclick="toggleWishlist(this, '{{ game.id }}')" 
+                                    class="btn btn-link p-0 ms-auto text-decoration-none border-0" 
+                                    style="font-size: 1.5rem; color: #ced4da;" 
+                                    id="wishlist-{{ game.id }}">
+                                ❤&#xFE0E
+                            </button>
                         </div>
                     </div>
-
-                    <div class="mt-auto d-flex align-items-center">
-                        <button id="btn-query-{{ game.id }}" 
-                                onclick="fetchMarketPrice({{ game.id }})" 
-                                class="btn btn-primary btn-sm px-3 me-2">
-                            🔍 查詢行情
-                        </button>
-                        
-                        <button onclick="toggleWishlist(this, {{ game.id }})" 
-                                class="btn btn-link p-0 ms-auto text-decoration-none border-0" 
-                                style="font-size: 1.5rem; color: #ced4da; transition: color 0.3s;" 
-                                id="wishlist-{{ game.id }}">
-                            ❤&#xFE0E
-                        </button>
-                    </div>
+                    
                 </div>
             </div>
         </div>

@@ -1,7 +1,8 @@
 services:
   # 網頁服務 (使用者瀏覽用)
   web:
-    build: .
+    # 這裡從 build 改為 image 
+    image: neil4bb/re-match
     ports:
       - "5000:5000"
     env_file: .env
@@ -9,9 +10,10 @@ services:
 
   # 背景填充服務 (每 12 分鐘自動跑)
   eshop_worker:
-    build: .
-    # 指定執行你的背景腳本
+    # 同樣改為 image，確保兩者共用同一個映像檔 
+    image: neil4bb/re-match
+    # 指定執行你的背景腳本 
     command: python scripts/fill_eshop_cache.py
-    # 確保容器崩潰或 EC2 重開後會自動啟動
+    # 確保容器崩潰或 EC2 重開後會自動啟動 
     restart: always
     env_file: .env

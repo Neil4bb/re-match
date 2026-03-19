@@ -62,12 +62,20 @@ class GamePlatformID(db.Model):
 # ----------------------------------------------------------------
 class EShopMapping(db.Model):
     __tablename__ = 'eshop_mappings'
+    
     id = db.Column(db.Integer, primary_key=True)
-    igdb_id = db.Column(db.Integer, unique=True, nullable=False) # 建議保留 IGDB ID 作為唯一索引
-    game_name = db.Column(db.String(255), nullable=False)
-    nsuid = db.Column(db.String(50), nullable=True)     # 初始化時為空
-    eshop_name = db.Column(db.String(255), nullable=True) # 初始化時為空
-    last_updated = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+    # 共通的 Title ID (例如: 01007EF00011E000)
+    title_id = db.Column(db.String(32), index=True, nullable=True) 
+    # 香港版名稱 (中文)
+    game_name = db.Column(db.String(255), nullable=False, index=True)
+    # 美國版名稱 (英文) - 認親成功的關鍵
+    english_name = db.Column(db.String(255), nullable=True)
+    # 7001 開頭的香港 NSUID (查價用)
+    nsuid = db.Column(db.String(20), unique=True, nullable=False)
+    icon_url = db.Column(db.String(500), nullable=True)
+    igdb_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=True)
+    
+    game = db.relationship('Game', backref='eshop_mapping', uselist=False)
 
 # ----------------------------------------------------------------
 # 3. 市場行情紀錄表 (加入 Platform 欄位區分平台價格)

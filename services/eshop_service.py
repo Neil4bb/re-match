@@ -75,38 +75,66 @@ class EShopService:
 
     def get_price_twd(self, game_id, nsuid):
         if not nsuid: return None
-        # 請求前加入隨機延遲
         time.sleep(random.uniform(0.5, 1.0))
 
+        # 1. 確保 ids 參數正確傳遞
         params = {"country": "HK", "lang": "zh", "ids": nsuid}
-        # 使用隨機 User-Agent
         headers = {"User-Agent": random.choice(self.ua_list)}
         
         try:
+            print(f"📡 [Price API] 正在請求 NSUID 價格: {nsuid}")
             response = requests.get(self.price_url, params=params, headers=headers, timeout=10)
             data = response.json()
+            
+            # 💡 偵錯用：看看 API 回傳了什麼
+            print(f"DEBUG API Response: {data}")
+
             prices = data.get('prices', [])
             
             if prices and len(prices) > 0:
                 p = prices[0]
+                # 香港 eShop 有時只回傳 regular_price，有特價才回傳 discount_price
                 price_info = p.get('discount_price') or p.get('regular_price')
                 
                 if price_info:
+                    # 取得原始數值 (例如 "HKD 429")
                     val = price_info.get('raw_value')
+                    # 只留下數字與小數點
                     numeric_val = re.sub(r'[^\d.]', '', str(val))
+                    
+                    # 2. 計算台幣
                     price_twd = int(float(numeric_val) * self.exchange_rate)
                     
-                    # 儲存至資料庫邏輯
-                    mp = MarketPrice.query.filter_by(game_id=game_id, source='eShop').first()
+                    # 3. 存入資料庫，使用我們約定好的標籤
+                    specific_title = f"eShop_{nsuid}"
+                    
+                    # 這裡必須確保是在 app.app_context 下執行，否則 db 操作會失敗
+                    mp = MarketPrice.query.filter_by(
+                        game_id=game_id, 
+                        source='eShop', 
+                        title=specific_title
+                    ).first()
+                    
                     if not mp:
-                        mp = MarketPrice(game_id=game_id, source='eShop')
+                        mp = MarketPrice(
+                            game_id=game_id, 
+                            source='eShop', 
+                            title=specific_title
+                        )
+                        
                     mp.price = price_twd
-                    mp.title = "eShop 數位版價格"
                     db.session.add(mp)
                     db.session.commit()
+                    print(f"✅ [Price Saved] {specific_title} 成功存入價格: NT$ {price_twd}")
                     return price_twd
+                else:
+                    print(f"⚠️ [Price API] NSUID {nsuid} 找不到價格欄位 (price_info is None)")
+            else:
+                print(f"❌ [Price API] NSUID {nsuid} 無效或 API 未回傳價格")
+                
         except Exception as e:
-            print(f"Error fetching price: {e}")
+            db.session.rollback()
+            print(f"💥 [Price Error] 抓取價格異常: {e}")
         return None
 
 if __name__ == "__main__":
