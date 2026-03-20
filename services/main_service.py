@@ -7,6 +7,7 @@ from flask import current_app
 from services.ptt_service import PttAdapter
 from sqlalchemy import or_
 import re
+import unicodedata
 
 class MainManager:
     def __init__(self):
@@ -16,13 +17,13 @@ class MainManager:
         self.ptt = PttAdapter()
 
     def search_games(self, query):
-        # 1. 抓取本地 EShopMapping (前三款的來源)
+        # 1. 抓取本地 EShopMapping
         mappings = EShopMapping.query.filter(EShopMapping.game_name.like(f"%{query}%")).all()
         
         local_results = []
         seen_igdb_ids = set()
-        # 建立一個基礎名稱清單，用來擋掉重複的英文分身
-        base_names = ["曠野之息", "Breath of the Wild"] 
+        # 🌟 動態建立關鍵字清單，用來擋掉標題太像的 IGDB 結果
+        local_titles = [] 
 
         for m in mappings:
             local_results.append({
@@ -34,21 +35,28 @@ class MainManager:
             })
             if m.igdb_id:
                 seen_igdb_ids.add(m.igdb_id)
+            local_titles.append(m.game_name.lower())
 
-        # 2. 抓取 IGDB 並執行「強勢去重」
+        # 2. 抓取 IGDB 並執行去重
         igdb_items = self.igdb.search_game(query)
         additional_results = []
         
         for item in igdb_items:
-            # 🌟 判定為分身的條件：
-            # A. ID 已經在本地綁定過了
-            # B. 名稱中包含核心關鍵字，且該遊戲沒有 NSUID (代表它是多餘的分身)
-            is_duplicate = (
-                item['id'] in seen_igdb_ids or 
-                (any(bn in item['name'] for bn in base_names) and not item.get('nsuid'))
-            )
+            # 判定重複的條件：
+            # 1. ID 已經在本地出現過
+            # 2. 或是英文名/中文名與本地現有的非常接近 (例如 P5R vs Persona 5 Royal)
+            is_duplicate = (item['id'] in seen_igdb_ids)
             
-            # 額外補刀：如果你這筆 ID=7346 真的太煩，直接在代碼層級黑名單
+            # 額外比對邏輯：如果 IGDB 的名字出現在本地標題裡，也視為重複
+            if not is_duplicate:
+                clean_igdb_name = item['name'].replace(" ", "").lower()
+                for lt in local_titles:
+                    # 檢查雙向包含：例如 "曠野之息" in "薩爾達傳說曠野之息"
+                    if clean_igdb_name in lt or lt in clean_igdb_name:
+                        is_duplicate = True
+                        print(f"🚫 [去重成功] 偵測到重複項: {item['name']} (ID: {item['id']})")
+                        break
+
             if item['id'] == 7346:
                 is_duplicate = True
 
@@ -172,6 +180,7 @@ class MainManager:
             # 1. 🌟 保留字典與清洗邏輯 (不變)
             search_query = name 
             if name:
+                # A. 先查 EShopMapping 字典表
                 mapping = EShopMapping.query.filter(
                     or_(EShopMapping.english_name == name,
                         EShopMapping.game_name == name,
@@ -183,8 +192,15 @@ class MainManager:
                     if not nsuid: nsuid = mapping.nsuid
                     print(f"🌍 [Match] 成功對應字典: {name} -> {search_query} (NSUID: {nsuid})")
                 else:
-                    search_query = self.clean_game_name(name)
-                    print(f"🧹 [Clean] 字典無紀錄，使用清洗名稱: {search_query}")
+                    # B. 字典沒中，回頭查 Game 主表有沒有中文名
+                    game_rec = db.session.get(Game, game_id) if game_id else None
+                    if game_rec and game_rec.chinese_name:
+                        search_query = game_rec.chinese_name
+                        print(f"🏮 [Database] 字典無紀錄，從 Game 表獲取中文名: {search_query}")
+                    else:
+                        # C. 都沒招了，才用原始名稱清洗
+                        search_query = name
+                        print(f"🧹 [Fallback] 全無紀錄，使用原始名稱: {search_query}")
 
             clean_query = self.clean_game_name(search_query)
             
@@ -316,6 +332,9 @@ class MainManager:
         """
         if not name:
             return ""
+        
+        # 🌟 核心：NFKC 會將全形字元(如：５、Ａ、（）) 自動轉為半形
+        name = unicodedata.normalize('NFKC', name)
 
         # 1. 🌟 新增：移除 PTT 搜尋大敵 —— 書名號
         name = name.replace('《', '').replace('》', '')
@@ -331,7 +350,7 @@ class MainManager:
         
         # 🌟 關鍵修正：要把「中間」的空格也殺掉，不能只用 strip()
         # 同時處理半形空格 " " 和全形空格 "　"
-        name = name.replace(" ", "").replace("　", "")
+        #name = name.replace(" ", "").replace("　", "")
         
         # 確保回傳的是最乾淨的連體字，例如 "巫師3"
         return name.strip()

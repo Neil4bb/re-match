@@ -1,6 +1,24 @@
 import json
 from app import app, db
 from models import EShopMapping
+import unicodedata
+import re
+
+def super_clean(text):
+    if not text:
+        return None
+
+    # 2. 徹底移除商標符號 (趁現在還是 TM 或 ™ 時直接殺掉)
+    for noise in ['™', '®', '©', 'TM', 'tm', '(TM)', '(tm)']:
+        text = text.replace(noise, '')
+    
+    
+    # 1. 規格化 (處理全形數字、括號、字母)
+    text = unicodedata.normalize('NFKC', text)
+    
+    # 3. 處理單引號並去空格
+    text = text.replace('’', "'").strip()
+    return text
 
 def import_all_games():
     with app.app_context():
@@ -44,18 +62,21 @@ def import_all_games():
             str_nsuid = str(nsuid)
             clean_hk_tid = str(hk_tid).strip().upper()
 
+            # 🌟 在這裡對名稱進行「超級清洗」
+            clean_game_name = super_clean(game_name)
+            raw_english_name = us_lookup.get(clean_hk_tid)
+            clean_english_name = super_clean(raw_english_name)
+
             # 關鍵過濾：僅處理正式遊戲 (7001) 且不重複
             if str_nsuid.startswith('7001') and str_nsuid not in seen_nsuids:
-                # 3. 執行精確匹配：從 lookup 表中獲取英文名稱
-                english_name = us_lookup.get(clean_hk_tid)
                 
-                if english_name:
+                if raw_english_name:
                     match_count += 1
                 
                 new_mapping = EShopMapping(
                     title_id=clean_hk_tid,
-                    game_name=game_name,
-                    english_name=english_name,
+                    game_name=clean_game_name, # 使用清洗後的中文
+                    english_name=clean_english_name, # 使用清洗後的英文
                     nsuid=str_nsuid,
                     icon_url=info.get('iconUrl')
                 )
