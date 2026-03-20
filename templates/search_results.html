@@ -38,13 +38,25 @@
                     
                     <div class="mt-auto">
                         <div id="price-info-{{ game.id }}" class="small mb-2 d-none price-info-area">
-                            <div class="d-flex justify-content-between">
-                                <span class="text-muted">eShop:</span>
-                                <span id="eshop-{{ game.id }}" class="fw-bold text-primary eshop-price">--</span>
+                            <div class="border-bottom pb-1 mb-1">
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-muted" style="font-size: 0.85em;">Nintendo Digital:</span>
+                                    <span class="fw-bold text-danger ns-digital">--</span>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-muted" style="font-size: 0.85em;">Nintendo PTT:</span>
+                                    <span class="fw-bold text-success ns-ptt">--</span>
+                                </div>
                             </div>
-                            <div class="d-flex justify-content-between">
-                                <span class="text-muted">PTT:</span>
-                                <span id="ptt-{{ game.id }}" class="fw-bold text-success ptt-price">--</span>
+                            <div>
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-muted" style="font-size: 0.85em;">PS Store:</span>
+                                    <span class="fw-bold text-primary ps-digital">--</span>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-muted" style="font-size: 0.85em;">PS PTT:</span>
+                                    <span class="fw-bold text-success ps-ptt">--</span>
+                                </div>
                             </div>
                         </div>
 

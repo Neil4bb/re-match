@@ -2,6 +2,7 @@ from extensions import db
 from models import Game, GamePlatformID, MarketPrice, UserAsset, EShopMapping # 【新增】導入 EShopMapping
 from services.igdb_service import IGDBService
 from services.eshop_service import EShopService
+from services.ps_service import PSStoreService
 from flask import current_app
 from services.ptt_service import PttAdapter
 from sqlalchemy import or_
@@ -11,6 +12,7 @@ class MainManager:
     def __init__(self):
         self.igdb = IGDBService()
         self.eshop = EShopService()
+        self.ps_store = PSStoreService()
         self.ptt = PttAdapter()
 
     def search_games(self, query):
@@ -167,48 +169,59 @@ class MainManager:
 
     def get_single_game_market_data(self, game_id, nsuid=None, name=None):
         try:
-            # 1. 🌟 精確翻譯與 NSUID 補完邏輯
-            search_query = name # 預設用原始名稱
-            
+            # 1. 🌟 保留字典與清洗邏輯 (不變)
+            search_query = name 
             if name:
-                # 改用精確匹配 english_name，避免 The Witcher 變成 薩爾達
                 mapping = EShopMapping.query.filter(
                     or_(EShopMapping.english_name == name,
                         EShopMapping.game_name == name,
-                        EShopMapping.english_name.like(f"{name}%")) # 至少要開頭一樣
+                        EShopMapping.english_name.like(f"{name}%"))
                 ).first()
 
                 if mapping:
-                    # 這裡才是正確的對應
                     search_query = mapping.game_name
-                    if not nsuid:
-                        nsuid = mapping.nsuid # 🌟 補回遺失的 NSUID
+                    if not nsuid: nsuid = mapping.nsuid
                     print(f"🌍 [Match] 成功對應字典: {name} -> {search_query} (NSUID: {nsuid})")
                 else:
-                    # 如果字典真的沒這款遊戲，就進行基本清洗（移除 : Wild Hunt 等）
                     search_query = self.clean_game_name(name)
                     print(f"🧹 [Clean] 字典無紀錄，使用清洗名稱: {search_query}")
 
-            # 2. --- eShop 區域 ---
-            eshop_price = "--"
+            clean_query = self.clean_game_name(search_query)
+            
+            results = {
+                'status': 'success',
+                'ps_digital': "--",
+                'ps_ptt': "--",
+                'ns_digital': "--",
+                'ns_ptt': "--"
+            }
+
+            # 2. --- PlayStation 區域 ---
+            # 💡 確保這裡呼叫的是你 ps_service.py 裡的 get_game_price
+            ps_data = self.ps_store.get_game_price(name, search_query)
+            if ps_data:
+                results['ps_digital'] = ps_data['price']
+                self._save_to_market_price(game_id, 'PS_Store', ps_data['name'], ps_data['price'], ps_data['url'])
+            
+
+            # 3. --- eShop 區域 ---
             if nsuid:
                 print(f"📡 [eShop] 使用 NSUID 查價: {nsuid}")
                 self.eshop.get_price_twd(game_id, nsuid)
                 rec = MarketPrice.query.filter_by(game_id=game_id, title=f"eShop_{nsuid}").first()
-                eshop_price = rec.price if rec else "--"
+                results['ns_digital'] = rec.price if rec else "--"
+            
 
-            # 3. --- PTT 區域 ---
-            ptt_price = "--"
-            # 這裡使用剛才確定的 search_query (如果是巫師，現在應該是巫師了)
+            # 4. --- PTT 分平台區域 ---
+            
             clean_query = self.clean_game_name(search_query)
 
             print(f"🕵️ [PTT] 最終送往爬蟲的關鍵字: {clean_query}")
 
-            # 傳入清洗後的結果
-            ptt_results = self.ptt.search_game_prices(clean_query)
-            
-            if ptt_results:
-                best_info = ptt_results[0]
+            # --- 第一次執行：獲取 PS 價格 ---
+            ptt_results_ps = self.ptt.search_game_prices(clean_query, "PS")
+            if ptt_results_ps:
+                best_info = ptt_results_ps[0]
                 new_ptt = MarketPrice(
                     game_id=game_id,
                     source='PTT',
@@ -218,13 +231,44 @@ class MainManager:
                 )
                 db.session.add(new_ptt)
                 db.session.commit()
-                ptt_price = best_info['price']
+                results['ps_ptt'] = best_info['price']
 
-            return {'status': 'success', 'eshop_price': eshop_price, 'ptt_price': ptt_price}
+            # --- 第二次執行：獲取 NS 價格 ---
+            ptt_results_ns = self.ptt.search_game_prices(clean_query, "NS")
+            if ptt_results_ns:
+                best_info = ptt_results_ns[0]
+                new_ptt = MarketPrice(
+                    game_id=game_id,
+                    source='PTT',
+                    title=best_info['title'],
+                    price=best_info['price'],
+                    source_url=best_info.get('url', "")
+                )
+                db.session.add(new_ptt)
+                db.session.commit()
+                results['ns_ptt'] = best_info['price']
+            
+
+            db.session.commit()
+            return results
+        
         except Exception as e:
             db.session.rollback()
-            print(f"❌ [Fatal] 查價崩潰: {e}")
             return {'status': 'error', 'message': str(e)}
+
+
+    def _save_to_market_price(self, game_id, source, title, price, url):
+        """輔助存檔，確保不重複紀錄"""
+        existing = MarketPrice.query.filter_by(game_id=game_id, source=source, title=title).first()
+        if not existing:
+            new_price = MarketPrice(
+                game_id=game_id,
+                source=source,
+                title=title,
+                price=price,
+                source_url=url
+            )
+            db.session.add(new_price)
         
     # 在 main_service.py 的 MainManager 類別中新增
     def find_and_store_single_game(self, name, nsuid):

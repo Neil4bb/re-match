@@ -15,10 +15,12 @@ class PttAdapter:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
 
-    def search_game_prices(self, game_name, limit=3, target_game=None):
+    def search_game_prices(self, game_name, platform, limit=3, target_game=None):
         """
         搜尋 PTT 貼文列表，並點進內文進行深度獵殺
         """
+        print(f"🚩 [PTT進入] 接收到平台參數: {platform}")
+
         if target_game is None:
             target_game = game_name
 
@@ -52,6 +54,10 @@ class PttAdapter:
                 title_link = item.select_one('.title a')
                 if not title_link: continue
                 title_text = title_link.text.strip()
+
+                if platform.upper() not in title_text.upper():
+                    continue
+
                 if "售" not in title_text or "徵" in title_text: continue
 
                 # 3. 點進內文精準獵殺價格
