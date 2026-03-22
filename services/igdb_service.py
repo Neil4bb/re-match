@@ -54,7 +54,7 @@ class IGDBService:
 
         # 定義目標平台
         target_platforms = "(48, 130, 167, 465)"
-        target_ids = [48, 130, 167, 465]
+        target_ids = [48, 130, 167, 508]
         
        # --- 第一階段：精準搜尋 + 平台過濾 ---
         # 加入 where platforms = ... 確保回傳結果皆符合平台要求
@@ -171,13 +171,68 @@ class IGDBService:
                 return []
             
     def get_game_by_id(self, game_id):
-        """透過 ID 獲取單一遊戲的完整資訊 (使用與 search_game 一致的請求邏輯)"""
-        # 1. 確保有 Token
+        """修正：確保 ID 查詢也能抓到中文別名並清洗"""
+        if not self.access_token: self.get_access_token()
+        cc = OpenCC('s2twp')
+        
+        # 🌟 關鍵：必須在 fields 加入 alternative_names 相關欄位
+        body = f"""
+            fields name, cover.url, summary, first_release_date, 
+                platforms.id, platforms.name, 
+                alternative_names.name, alternative_names.comment; 
+            where id = {game_id};
+        """
+        
+        try:
+            res = requests.post("https://api.igdb.com/v4/games", 
+                                headers={'Client-ID': self.client_id, 'Authorization': f'Bearer {self.access_token}'}, 
+                                data=body)
+            data = res.json()
+            if not data: return None
+            
+            game = data[0]
+            # --- 開始移植你的搜尋清洗邏輯 ---
+            game['chinese_name'] = ""
+            alts = game.get('alternative_names', [])
+            
+            # 第一輪：找繁體標籤
+            for alt in alts:
+                name = alt.get('name', '')
+                comment = alt.get('comment', '').lower()
+                if any(tag in comment for tag in ['traditional', 'taiwan', 'hong kong', '繁體', '台灣']):
+                    game['chinese_name'] = cc.convert(name)
+                    break
+            
+            # 第二輪：過濾簡體與排除詞 (這部分直接套用你 search_game 的邏輯)
+            if not game['chinese_name']:
+                exclude_keywords = ['simplified', 'china', 'mainland']
+                exclude_names = ['塞尔达', '精靈寶可夢', '马力欧']
+                for alt in alts:
+                    name = alt.get('name', '')
+                    has_chinese = any('\u4e00' <= char <= '\u9fff' for char in name)
+                    is_simplified = any(k in alt.get('comment', '').lower() for k in exclude_keywords)
+                    is_excluded = any(en in name for en in exclude_names)
+                    if has_chinese and not is_simplified and not is_excluded:
+                        game['chinese_name'] = cc.convert(name)
+                        break
+            
+            # 處理圖片與平台
+            if 'cover' in game:
+                game['cover_url'] = "https:" + game['cover']['url'].replace('t_thumb', 't_cover_big')
+            return game
+        except Exception as e:
+            print(f"❌ ID 查詢補完失敗: {e}")
+            return None
+        
+    def get_games_by_custom_query(self, query_body):
+        """
+        通用型 IGDB 查詢方法，接受自定義的查詢字串 (body)
+        """
         if not self.access_token:
             self.get_access_token()
-
+        print(f"🔑 目前使用的 Token: {self.access_token[:10]}***") # 偵錯用
         if not self.access_token:
-            return None
+            return []
 
         search_url = "https://api.igdb.com/v4/games"
         headers = {
@@ -185,30 +240,17 @@ class IGDBService:
             'Authorization': f'Bearer {self.access_token}'
         }
 
-        # 2. 定義查詢內容
-        # 確保 fields 包含 store_game_logic 存檔所需的欄位
-        body = f"fields name, cover.url, first_release_date, summary, genres.name, platforms.name, platforms.id, category; where id = {game_id};"        
-        
         try:
-            response = requests.post(search_url, headers=headers, data=body)
-            response.raise_for_status()
-            raw_games = response.json()
-            
-            if raw_games and len(raw_games) > 0:
-                game = raw_games[0]
-                
-                # 3. 執行與 search_game 相同的資料清洗 (補上 https 封面)
-                if 'cover' in game and 'url' in game['cover']:
-                    original_url = game['cover']['url']
-                    game['cover_url'] = "https:" + original_url.replace('t_thumb', 't_cover_big')
-                else:
-                    game['cover_url'] = "https://placehold.co/264x352?text=No+Cover"
-                
-                return game
-            return None
+            # 🌟 這裡使用你現有的 requests.post 邏輯
+            response = requests.post(search_url, headers=headers, data=query_body)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"❌ IGDB API 錯誤: {response.status_code} - {response.text}")
+                return []
         except Exception as e:
-            print(f"❌ [IGDB ID Query] 請求失敗: {e}")
-            return None
+            print(f"💥 請求異常: {e}")
+            return []
         
 # --- 測試代碼 (當你直接執行此檔案時才會跑) ---
 if __name__ == "__main__":

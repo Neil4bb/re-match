@@ -61,6 +61,7 @@ def import_all_games():
             
             str_nsuid = str(nsuid)
             clean_hk_tid = str(hk_tid).strip().upper()
+            game_intro = info.get('intro', '')
 
             # 🌟 在這裡對名稱進行「超級清洗」
             clean_game_name = super_clean(game_name)
@@ -78,7 +79,8 @@ def import_all_games():
                     game_name=clean_game_name, # 使用清洗後的中文
                     english_name=clean_english_name, # 使用清洗後的英文
                     nsuid=str_nsuid,
-                    icon_url=info.get('iconUrl')
+                    icon_url=info.get('iconUrl'),
+                    intro=game_intro
                 )
                 
                 db.session.add(new_mapping)

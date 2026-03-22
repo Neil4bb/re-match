@@ -80,6 +80,8 @@ class EShopMapping(db.Model):
     # 7001 開頭的香港 NSUID (查價用)
     nsuid = db.Column(db.String(20), unique=True, nullable=False)
     icon_url = db.Column(db.String(500), nullable=True)
+    intro = db.Column(db.Text)
+    
     igdb_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=True)
     
     game = db.relationship('Game', backref='eshop_mapping', uselist=False)

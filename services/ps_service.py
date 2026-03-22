@@ -21,12 +21,20 @@ class PSStoreService:
                 price_str = price_data.get('discountedPrice') or price_data.get('basePrice')
                 
                 if name and price_str:
-                    price_val = int(re.sub(r'[^\d]', '', str(price_str)))
-                    results.append({
-                        'name': name,
-                        'price': price_val,
-                        'id': data.get('id')
-                    })
+                    # 先過濾掉所有非數字字元
+                    clean_price = re.sub(r'[^\d]', '', str(price_str))
+                    
+                    # 🌟 只有當 clean_price 不是空字串時才執行 int() 轉換
+                    if clean_price:
+                        price_val = int(clean_price)
+                        results.append({
+                            'name': name,
+                            'price': price_val,
+                            'id': data.get('id')
+                        })
+                    else:
+                        # 如果是免費遊戲或未定價，可以設為 0 或跳過
+                        print(f"⚠️ 跳過無價格項目: {name}")
             for v in data.values():
                 self._find_products_recursive(v, results)
         elif isinstance(data, list):

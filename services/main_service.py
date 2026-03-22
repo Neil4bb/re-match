@@ -6,8 +6,7 @@ from services.ps_service import PSStoreService
 from flask import current_app
 from services.ptt_service import PttAdapter
 from sqlalchemy import or_
-import re
-import unicodedata
+import re, time, random, unicodedata
 
 class MainManager:
     def __init__(self):
@@ -237,42 +236,68 @@ class MainManager:
 
     # services/main_service.py
 
-    def get_single_game_market_data(self, game_id, nsuid=None, name=None):
+    def get_single_game_market_data(self, game_id, nsuid=None, name=None, is_priority=False):
         try:
-            # 1. 🌟 保留字典與清洗邏輯 (不變)
-            search_query = name 
+            
+            
+            search_query = name # 預設值
+            
             if name:
-                # A. 先查 EShopMapping 字典表
+            
+                # A. 優先查字典 (EShopMapping)
                 mapping = EShopMapping.query.filter(
-                    or_(EShopMapping.english_name == name,
-                        EShopMapping.game_name == name,
-                        EShopMapping.english_name.like(f"{name}%"))
-                ).first()
-
+                        or_(EShopMapping.english_name == name,
+                            EShopMapping.game_name == name,
+                            EShopMapping.english_name.like(f"{name}%"))
+                    ).first()
+                
                 if mapping:
                     search_query = mapping.game_name
                     if not nsuid: nsuid = mapping.nsuid
-                    print(f"🌍 [Match] 成功對應字典: {name} -> {search_query} (NSUID: {nsuid})")
-                else:
-                    # B. 字典沒中，回頭查 Game 主表有沒有中文名
-                    game_rec = db.session.get(Game, game_id) if game_id else None
-                    if game_rec and game_rec.chinese_name:
-                        search_query = game_rec.chinese_name
-                        print(f"🏮 [Database] 字典無紀錄，從 Game 表獲取中文名: {search_query}")
-                    else:
-                        # C. 都沒招了，才用原始名稱清洗
-                        search_query = name
-                        print(f"🧹 [Fallback] 全無紀錄，使用原始名稱: {search_query}")
 
-            clean_query = self.clean_game_name(search_query)
+                    # 🌟 【新增回填邏輯 1】：如果字典有這筆資料，但還沒關聯 IGDB ID，現在立刻回填
+                    if game_id and mapping.igdb_id is None:
+                        mapping.igdb_id = game_id
+                        db.session.commit()
+                        print(f"🔗 [回填成功] 字典 {mapping.game_name} 已綁定 IGDB ID: {game_id}")
+                    
+                    print(f"🌍 [Match] 成功對應字典: {search_query}")
+                # B. 字典沒中，使用剛才 ensure_game_exists 抓回來的中文名
+                else:
+                        # B. 字典沒中，回頭查 Game 主表有沒有中文名
+                        game_rec = db.session.get(Game, game_id) if game_id else None
+                        if game_rec and game_rec.chinese_name:
+                            search_query = game_rec.chinese_name
+                            print(f"🏮 [Database] 字典無紀錄，從 Game 表獲取中文名: {search_query}")
+                        else:
+                            # C. 都沒招了，才用原始名稱清洗
+                            search_query = name
+                            print(f"🧹 [Fallback] 全無紀錄，使用原始名稱: {search_query}")
+                    
+            if game_id:
+                # 調用 ensure_game_exists
+                self.ensure_game_exists(game_id, name_fallback=search_query, nsuid=nsuid)
+
+                # 🌟 【新增回填邏輯 2】：確保 GamePlatformID 表也有這個 NSUID 關聯
+                if nsuid:
+                    existing_platform = GamePlatformID.query.filter_by(
+                        game_id=game_id, 
+                        platform='Switch'
+                    ).first()
+                    
+                    if not existing_platform:
+                        new_platform = GamePlatformID(
+                            game_id=game_id,
+                            platform='Switch',
+                            external_id=nsuid
+                        )
+                        db.session.add(new_platform)
+                        db.session.commit()
+                        print(f"✅ [Platform Saved] 查價時補完 NSUID 關聯: {nsuid}")
+            
             
             # ---------------------------------------------------------
-            # 🌟 [重點：在此處加入保護邏輯] 🌟
-            # 在準備開始存檔之前，確保 game_id 在 games 表中有紀錄
-            if game_id:
-                # 調用剛才寫好的 ensure_game_exists
-                self.ensure_game_exists(game_id, name_fallback=search_query, nsuid=nsuid)
-            # ---------------------------------------------------------
+            
 
             results = {
                 'status': 'success',
@@ -299,17 +324,15 @@ class MainManager:
             
 
             # 4. --- PTT 分平台區域 ---
+
+            ptt_keyword, filter_tag = self._get_ptt_search_strategy(search_query)
+    
+            print(f"🕵️ [PTT] 最終策略 - 關鍵字: {ptt_keyword} | 過濾器: {filter_tag}")
             
-            clean_query = self.clean_game_name(search_query)
-            ptt_keyword = re.split(r'[:：\-－]', clean_query)[0]
-            ptt_keyword = ptt_keyword.replace(" ", "").replace("　", "")
-            ptt_keyword = ptt_keyword.replace("NintendoSwitch2Edition", " Switch 2").replace("Switch2Edition", " Switch 2")
-            
-            print(f"🕵️ [PTT] 最終送往爬蟲的關鍵字: {ptt_keyword}")
             
 
             # --- 第一次執行：獲取 PS 價格 ---
-            ptt_results_ps = self.ptt.search_game_prices(ptt_keyword, "PS")
+            ptt_results_ps = self.ptt.search_game_prices(ptt_keyword, "PS", filter_tag=filter_tag)
             if ptt_results_ps:
                 best_info = ptt_results_ps[0]
                 new_ptt = MarketPrice(
@@ -324,7 +347,7 @@ class MainManager:
                 results['ps_ptt'] = best_info['price']
 
             # --- 第二次執行：獲取 NS 價格 ---
-            ptt_results_ns = self.ptt.search_game_prices(ptt_keyword, "NS")
+            ptt_results_ns = self.ptt.search_game_prices(ptt_keyword, "NS", filter_tag=filter_tag)
             if ptt_results_ns:
                 best_info = ptt_results_ns[0]
                 new_ptt = MarketPrice(
@@ -510,6 +533,9 @@ class MainManager:
         # 3. 移除括號內的內容 (原本的)
         name = re.sub(r'\(.*?\)', '', name)
 
+        # 刪除常見的 PTT 搜尋地雷符號，但不刪除文字與空格
+        name = re.sub(r'[!！?？+＋™®ⓒ@#$%\^&*()_=+\[\]{}|\\;\'\",.<>/?]', '', name)
+
         # 1. 移除特殊符號，但保留中文字與英數字
         clean = re.sub(r'[^\w\s\u4e00-\u9fff]', ' ', name)
         
@@ -555,3 +581,127 @@ class MainManager:
                 print(f"❌ 補完遊戲資料時發生錯誤: {e}")
                 
         return game
+    
+
+    def get_igdb_trending_ids(self, limit=1000):
+        """
+        🌟 分頁修正版：克服 IGDB 單次 500 筆的限制
+        """
+        all_ids = []
+        page_size = 500  # IGDB 的硬上限
+        
+        # 計算需要跑幾次迴圈 (例如 1000/500 = 2 次)
+        for i in range(0, limit, page_size):
+            offset = i
+            current_limit = min(page_size, limit - offset)
+            
+            # 建立分頁查詢語法
+            query = (
+                f"fields id; "
+                f"where (platforms = (130, 167, 48)) & total_rating_count > 0; "
+                f"sort total_rating_count desc; "
+                f"limit {current_limit}; "
+                f"offset {offset};"
+            )
+            
+            try:
+                print(f"📡 執行第 {i//page_size + 1} 頁查詢 (Offset: {offset})...")
+                results = self.igdb.get_games_by_custom_query(query)
+                
+                if isinstance(results, list):
+                    page_ids = [g['id'] for g in results]
+                    all_ids.extend(page_ids)
+                    print(f"✅ 本頁成功抓取 {len(page_ids)} 筆")
+                else:
+                    print(f"❌ 分頁查詢失敗: {results}")
+                    break
+                    
+            except Exception as e:
+                print(f"❌ 執行異常: {e}")
+                break
+                
+        print(f"📊 最終累計獲取熱門 ID 共: {len(all_ids)} 筆")
+        return all_ids
+    
+
+    def _get_ptt_search_strategy(self, search_query):
+        """
+        🌟 PTT 雙軌搜尋策略：產出『精準關鍵字』與『過濾標籤』
+        """
+        import re
+        
+        # 1. 判斷語言與基礎清洗
+        clean_query = self.clean_game_name(search_query)
+        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in clean_query)
+
+        # 2. 核心：雙軌搜尋策略
+        parts = re.split(r'[:：\-－/]', clean_query)
+        main_title = parts[0].strip()
+        sub_title = parts[1].strip() if len(parts) > 1 else ""
+
+        # 初始化輸出
+        ptt_keyword = main_title
+        filter_tag = None
+
+        if has_chinese:
+            # 💡 中文邏輯：判斷主標是否太短 (如: 魔物獵人, 光與影)
+            if 0 < len(main_title) <= 2 and sub_title:
+                # 策略 A：主標太短，改搜副標，並拿主標當過濾器
+                ptt_keyword = sub_title
+                filter_tag = main_title[:3] 
+            else:
+                # 策略 B：主標夠長，合併搜尋以求精準 (如: 魔物獵人世界)
+                ptt_keyword = main_title
+            
+            
+            # 清洗中文空格
+            ptt_keyword = ptt_keyword.replace(" ", "").replace("　", "")
+
+            ptt_keyword = ptt_keyword.replace("遠徵", "遠征")
+        else:
+            # 💡 英文邏輯：保留空格，取前兩個單字
+            words = clean_query.split()
+            if len(words) > 2:
+                ptt_keyword = " ".join(words[:2])
+                filter_tag = words[2]
+            else:
+                ptt_keyword = clean_query
+                filter_tag = words[0] if words else None
+
+        # 3. 處理 Switch 2 特殊取代
+        ptt_keyword = ptt_keyword.replace("NintendoSwitch2Edition", " Switch 2").replace("Switch2Edition", " Switch 2")
+        
+        # 確保關鍵字不為空
+        if not ptt_keyword:
+            ptt_keyword = clean_query
+
+        ptt_keyword = ptt_keyword.replace(":", "").replace("：", "").replace("-", "").replace("－", "")
+
+        return ptt_keyword, filter_tag
+        
+# --- 測試代碼 (當你直接執行此檔案時才會跑) ---
+if __name__ == "__main__":
+    from app import app
+    with app.app_context():
+        manager = MainManager()
+        
+        print("🚀 [測試啟動] 正在嘗試從 IGDB 獲取 1000 筆跨平台熱門遊戲...")
+        
+        # 🌟 直接呼叫你的目標方法
+        trending_ids = manager.get_igdb_trending_ids(limit=1000)
+        
+        print("-" * 50)
+        if trending_ids and len(trending_ids) > 0:
+            print(f"✅ 測試成功！")
+            print(f"📊 實際抓取筆數: {len(trending_ids)}")
+            print(f"🆔 前 10 筆 ID 範例: {trending_ids[:10]}")
+            
+            # 隨機抽查一筆，看看能不能轉成中文名稱 (確保 ensure_game_exists 也正常)
+            test_id = trending_ids[0]
+            print(f"🔍 正在測試 ID {test_id} 的認親邏輯...")
+            game = manager.ensure_game_exists(test_id)
+            if game:
+                print(f"🎮 成功對應遊戲: {game.chinese_name} ({game.name})")
+        else:
+            print("❌ 測試失敗：回傳清單為空。請檢查 IGDB 語法或 total_rating_count 欄位。")
+        print("-" * 50)
