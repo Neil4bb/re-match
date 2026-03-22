@@ -50,8 +50,7 @@
                                                 <span class="d-block">{{ game.name }}</span>
                                             {% endif %}
                                             <span class="badge bg-light text-dark border-0 p-0">
-                                                {% set ns_rec = game.platform_ids | selectattr('platform', 'equalto', 'Switch') | first %}
-                                                NSUID: {{ ns_rec.external_id if ns_rec and ns_rec.external_id else '未設定' }}
+                                                NSUID: {{ game.nsuid if game.nsuid else '未設定' }}
                                             </span>
                                         </div>
                                     </div>

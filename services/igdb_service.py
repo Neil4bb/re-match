@@ -60,8 +60,8 @@ class IGDBService:
         # 加入 where platforms = ... 確保回傳結果皆符合平台要求
         body = f"""
         search "{game_name}"; 
-        fields name, cover.url, platforms.name, alternative_names.name, summary; 
-        limit 5;
+        fields name, cover.url, summary, category, platforms.id, platforms.name, alternative_names.name; 
+        limit 10;
         """
         
         try:
@@ -73,7 +73,7 @@ class IGDBService:
 
             if not raw_games:
                 print(f"🔍 模式切換：執行模糊比對...")
-                body = f'fields name, cover.url, platforms.name, alternative_names.name; where name ~ *"{game_name}"*; limit 5;'
+                body = f'fields name, cover.url, summary, category, platforms.id, platforms.name, alternative_names.name; where name ~ *"{game_name}"*; limit 10;'
                 response = requests.post(search_url, headers=headers, data=body)
                 raw_games = response.json()
 
@@ -169,7 +169,47 @@ class IGDBService:
             except Exception as e:
                 print(f"💥 請求異常: {e}")
                 return []
+            
+    def get_game_by_id(self, game_id):
+        """透過 ID 獲取單一遊戲的完整資訊 (使用與 search_game 一致的請求邏輯)"""
+        # 1. 確保有 Token
+        if not self.access_token:
+            self.get_access_token()
 
+        if not self.access_token:
+            return None
+
+        search_url = "https://api.igdb.com/v4/games"
+        headers = {
+            'Client-ID': self.client_id,
+            'Authorization': f'Bearer {self.access_token}'
+        }
+
+        # 2. 定義查詢內容
+        # 確保 fields 包含 store_game_logic 存檔所需的欄位
+        body = f"fields name, cover.url, first_release_date, summary, genres.name, platforms.name, platforms.id, category; where id = {game_id};"        
+        
+        try:
+            response = requests.post(search_url, headers=headers, data=body)
+            response.raise_for_status()
+            raw_games = response.json()
+            
+            if raw_games and len(raw_games) > 0:
+                game = raw_games[0]
+                
+                # 3. 執行與 search_game 相同的資料清洗 (補上 https 封面)
+                if 'cover' in game and 'url' in game['cover']:
+                    original_url = game['cover']['url']
+                    game['cover_url'] = "https:" + original_url.replace('t_thumb', 't_cover_big')
+                else:
+                    game['cover_url'] = "https://placehold.co/264x352?text=No+Cover"
+                
+                return game
+            return None
+        except Exception as e:
+            print(f"❌ [IGDB ID Query] 請求失敗: {e}")
+            return None
+        
 # --- 測試代碼 (當你直接執行此檔案時才會跑) ---
 if __name__ == "__main__":
     service = IGDBService()

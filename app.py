@@ -148,14 +148,24 @@ def get_market_api(game_id):
             if nsuid and name:
                 print(f"🔗 正在為 {name} 執行自動綁定...")
                 game = manager.find_and_store_single_game(name, nsuid)
+                
+                # 🌟 [關鍵修改：分流處理]
                 if game:
-                    # 🌟 關鍵修改：綁定後查價也要帶 nsuid
+                    # A. 綁定成功：使用正式 game.id 查價
                     data = manager.get_single_game_market_data(game.id, nsuid=nsuid, name=name)
+                    data.update({'new_game_id': game.id, 'status': 'success'})
+                else:
+                    # B. 🌟 關鍵修正：如果 find_and_store_single_game 回傳 None (IGDB 沒搜到)
+                    # 我們依然執行查價，只是 game_id 傳入 None
+                    print(f"⚠️ IGDB 無匹配，執行無 ID 基礎查價 (NSUID: {nsuid})")
+                    data = manager.get_single_game_market_data(None, nsuid=nsuid, name=name)
                     data.update({
-                        'new_game_id': game.id,
-                        'status': 'success'
+                        'new_game_id': None,
+                        'status': 'no_igdb_match'
                     })
-                    return jsonify(data)
+                
+                return jsonify(data)
+            
             return jsonify({'status': 'error', 'message': '找不到 NSUID 或名稱'}), 400
 
     except Exception as e:

@@ -22,7 +22,7 @@ class MainManager:
         
         local_results = []
         seen_igdb_ids = set()
-        # 🌟 動態建立關鍵字清單，用來擋掉標題太像的 IGDB 結果
+        # 🌟 用來擋掉標題太像的黑名單清單 (包含中文與英文)
         local_titles = [] 
 
         for m in mappings:
@@ -35,29 +35,37 @@ class MainManager:
             })
             if m.igdb_id:
                 seen_igdb_ids.add(m.igdb_id)
-            local_titles.append(m.game_name.lower())
+            
+            # 🌟 關鍵優化：將本地中文名稱「去空格」後加入比對
+            local_titles.append(m.game_name.replace(" ", "").lower())
+            
+            # 🌟 關鍵優化：如果字典有英文名，也「去空格」後加入比對
+            # 這能有效擋掉像 "The Legend of Zelda" 這種 IGDB 英文結果
+            if hasattr(m, 'english_name') and m.english_name:
+                local_titles.append(m.english_name.replace(" ", "").lower())
 
         # 2. 抓取 IGDB 並執行去重
         igdb_items = self.igdb.search_game(query)
         additional_results = []
         
         for item in igdb_items:
-            # 判定重複的條件：
-            # 1. ID 已經在本地出現過
-            # 2. 或是英文名/中文名與本地現有的非常接近 (例如 P5R vs Persona 5 Royal)
+            # 判斷 1：ID 是否完全相同
             is_duplicate = (item['id'] in seen_igdb_ids)
             
-            # 額外比對邏輯：如果 IGDB 的名字出現在本地標題裡，也視為重複
+            # 判斷 2：名稱模糊比對 (處理分身 ID)
             if not is_duplicate:
+                # 🌟 將 IGDB 名字也「去空格」處理
                 clean_igdb_name = item['name'].replace(" ", "").lower()
+                
                 for lt in local_titles:
-                    # 檢查雙向包含：例如 "曠野之息" in "薩爾達傳說曠野之息"
+                    # 雙向包含檢查：解決 "P5R" vs "Persona 5 Royal" 或中文 vs 英文包含問題
                     if clean_igdb_name in lt or lt in clean_igdb_name:
                         is_duplicate = True
-                        print(f"🚫 [去重成功] 偵測到重複項: {item['name']} (ID: {item['id']})")
+                        print(f"🚫 [去重成功] 偵測到名稱重複: {item['name']} (與本地 {lt} 衝突)")
                         break
 
-            if item['id'] == 7346:
+            # 判斷 3：硬編碼黑名單 (保留你原本的判斷)
+            if item['id'] == 150080:
                 is_duplicate = True
 
             if not is_duplicate:
@@ -68,43 +76,97 @@ class MainManager:
 
     def store_game_logic(self, item):
         """
-        【修改】保留原邏輯，並增加「自動綁定 Mapping」功能
+        【修改】強化名稱儲存邏輯：優先採用 Mapping 表的中文名稱
         """
+        # 1. 取得現有的遊戲紀錄
         game = db.session.get(Game, item['id'])
 
         if not game:
+            # 🌟 [新增邏輯]：在存檔前，先去 Mapping 表看看有沒有這款遊戲的中文名
+            # 優先用 nsuid 查，若無則用 igdb_id 查
+            mapping = None
+            if item.get('nsuid'):
+                mapping = EShopMapping.query.filter_by(nsuid=item['nsuid']).first()
+            if not mapping:
+                mapping = EShopMapping.query.filter_by(igdb_id=item['id']).first()
+
+            # 🌟 決定最終顯示名稱
+            # 1. 決定「小字」(原始英文名)
+            # 如果 item 裡有 name (IGDB 抓來的)，就用它；
+            # 如果 mapping 有英文名，那更好。
+            target_english = item.get('name', '')
+            
+            # 🌟 逐行比對：如果 mapping 的中文名沒寫 Switch 2，英文名就絕對不准有
+            if mapping:
+                target_english = mapping.english_name if mapping.english_name else item.get('name', '')
+
+                is_map_sw2 = "switch 2" in mapping.game_name.lower() or "switch2" in mapping.game_name.lower()
+                if not is_map_sw2:
+                    target_english = target_english.replace("Nintendo Switch 2 Edition", "")
+                    target_english = target_english.replace("Switch 2", "").replace("Switch2", "")
+                    target_english = target_english.rstrip(' –-').strip()
+                
+            else:
+                # 如果連 Mapping 都沒英文名，則執行基礎平台判定去污 (備援)
+                platforms = item.get('platforms', [])
+                p_ids = [p.get('id') if isinstance(p, dict) else p for p in platforms]
+                if 508 not in p_ids:
+                    target_english = target_english.replace("Nintendo Switch 2 Edition", "").replace("Switch 2", "").strip()
+                    target_english = target_english.rstrip(' –-')
+
+            # 2. 決定「大字」(本地中文名)
+            # 優先序：Mapping 字典 > 傳入的 chinese_name > IGDB 原始名
+            target_chinese = item.get('chinese_name') or item['name']
+            if mapping and mapping.game_name:
+                target_chinese = mapping.game_name
+
+            # 🌟 [新增]：在存檔前執行最後一次清洗 
+            target_chinese = self.clean_game_name(target_chinese)
+
             game = Game(
                 id=item['id'],
-                name=item['name'],
-                chinese_name=item.get('chinese_name', ''),
+                name=target_english,    # 小字：英文
+                chinese_name=target_chinese, # 小字：英文
                 cover_url=item['cover_url'],
                 summary=item.get('summary')
             )
             db.session.add(game)
-            db.session.flush() # 取得實體以供關聯
+            db.session.flush()
 
-        # 【新增】如果這是一個來自搜尋的結果，且帶有 nsuid，嘗試回填 EShopMapping
+        # 2. 自動綁定 Mapping 功能 (保留原邏輯)
         if item.get('nsuid'):
             mapping = EShopMapping.query.filter_by(nsuid=item['nsuid']).first()
             if mapping and mapping.igdb_id is None:
                 mapping.igdb_id = game.id
                 print(f"🔗 自動綁定: {mapping.game_name} -> IGDB ID: {game.id}")
 
-        existing_platform = GamePlatformID.query.filter_by(
-            game_id=game.id, 
-            platform=item.get('platform', 'Switch')
-        ).first()
+        # 3. 處理平台 ID (保留原邏輯)
+        platform_name = 'Switch'
+        nsuid_to_save = item.get('nsuid')
 
-        if not existing_platform:
-            new_platform_id = GamePlatformID(
-                game_id=game.id,
-                platform=item.get('platform', 'Switch'),
-                external_id=item.get('nsuid')
-            )
-            db.session.add(new_platform_id)
+        if nsuid_to_save:
+            existing_platform = GamePlatformID.query.filter_by(
+                game_id=game.id, 
+                platform=platform_name
+            ).first()
+
+            if not existing_platform:
+                new_platform_id = GamePlatformID(
+                    game_id=game.id,
+                    platform='Switch',
+                    external_id=item.get('nsuid')
+                )
+                db.session.add(new_platform_id)
+                # 🌟 修正 ：立即 commit，防止後續 PTT 錯誤導致 rollback
+                db.session.commit() 
+                print(f"✅ [Platform Saved] ID: {nsuid_to_save}")
+            elif nsuid_to_save and not existing_platform.external_id:
+                existing_platform.external_id = nsuid_to_save
+                db.session.commit()
+                print(f"✅ [Platform Updated] ID: {nsuid_to_save}")
         
-        db.session.commit()
         return game
+
 
     def get_game_details(self, game_id):
         """保留原邏輯"""
@@ -204,6 +266,14 @@ class MainManager:
 
             clean_query = self.clean_game_name(search_query)
             
+            # ---------------------------------------------------------
+            # 🌟 [重點：在此處加入保護邏輯] 🌟
+            # 在準備開始存檔之前，確保 game_id 在 games 表中有紀錄
+            if game_id:
+                # 調用剛才寫好的 ensure_game_exists
+                self.ensure_game_exists(game_id, name_fallback=search_query, nsuid=nsuid)
+            # ---------------------------------------------------------
+
             results = {
                 'status': 'success',
                 'ps_digital': "--",
@@ -231,11 +301,15 @@ class MainManager:
             # 4. --- PTT 分平台區域 ---
             
             clean_query = self.clean_game_name(search_query)
-
-            print(f"🕵️ [PTT] 最終送往爬蟲的關鍵字: {clean_query}")
+            ptt_keyword = re.split(r'[:：\-－]', clean_query)[0]
+            ptt_keyword = ptt_keyword.replace(" ", "").replace("　", "")
+            ptt_keyword = ptt_keyword.replace("NintendoSwitch2Edition", " Switch 2").replace("Switch2Edition", " Switch 2")
+            
+            print(f"🕵️ [PTT] 最終送往爬蟲的關鍵字: {ptt_keyword}")
+            
 
             # --- 第一次執行：獲取 PS 價格 ---
-            ptt_results_ps = self.ptt.search_game_prices(clean_query, "PS")
+            ptt_results_ps = self.ptt.search_game_prices(ptt_keyword, "PS")
             if ptt_results_ps:
                 best_info = ptt_results_ps[0]
                 new_ptt = MarketPrice(
@@ -250,7 +324,7 @@ class MainManager:
                 results['ps_ptt'] = best_info['price']
 
             # --- 第二次執行：獲取 NS 價格 ---
-            ptt_results_ns = self.ptt.search_game_prices(clean_query, "NS")
+            ptt_results_ns = self.ptt.search_game_prices(ptt_keyword, "NS")
             if ptt_results_ns:
                 best_info = ptt_results_ns[0]
                 new_ptt = MarketPrice(
@@ -288,43 +362,137 @@ class MainManager:
         
     # 在 main_service.py 的 MainManager 類別中新增
     def find_and_store_single_game(self, name, nsuid):
-        # 1. 先從 Mapping 表找出這筆資料
-        mapping = EShopMapping.query.filter_by(nsuid=nsuid).first()
-        
-        # 2. 決定搜尋關鍵字：有英文名就用英文，沒有才用原本傳入的名稱
-        # 取得原始英文名
-        raw_query = mapping.english_name if mapping and mapping.english_name else name
-        
-        # 🌟 執行清洗邏輯
-        search_query = self.clean_game_name(raw_query)
-        
-        print(f"🎯 [Final Query] 清洗後的搜尋字串: '{search_query}'")
-        
-        # 策略 1：直接搜尋 (原本的邏輯)
-        igdb_results = self.igdb.search_game(search_query)
-        
-        # 策略 2：如果沒結果，且名字包含中英文混雜，嘗試拆分
-        if not igdb_results:
-            import re
-            # 提取英文部分 (假設名字長得像 "遊戲名 Game Name")
-            english_parts = re.findall(r'[a-zA-Z0-9\s]{3,}', name)
-            if english_parts:
-                alt_name = english_parts[-1].strip()
-                print(f"🔄 [Retry] 使用英文名稱重試: {alt_name}")
-                igdb_results = self.igdb.search_game(alt_name)
+        try:
+            # 1. 取得 Mapping 權威資料
+            mapping = EShopMapping.query.filter_by(nsuid=nsuid).first()
 
-        if igdb_results:
-            # 挑選最像的一筆
-            best_match = igdb_results[0]
-            best_match['nsuid'] = nsuid
+            # 1. 判定目標模式
+            is_targeting_switch2 = "switch 2" in name.lower() or "switch2" in name.lower()
             
-            # 執行儲存 (這會觸發你原本的 store_game_logic)
-            game_obj = self.store_game_logic(best_match)
-            print(f"✅ [Success] 成功綁定: {name} -> IGDB ID: {game_obj.id}")
-            return game_obj
-        
-        print(f"❌ [Failed] IGDB 找不到任何與 '{name}' 相關的資料")
-        return None
+            # 2. 獲取初始搜尋詞
+            search_target = mapping.english_name if mapping and mapping.english_name else name
+            
+            # 🌟 關鍵修正：搜尋詞隔離
+            if not is_targeting_switch2:
+                # 如果目標是原版，強制移除搜尋詞中的 Switch 2 贅字，防止搜到 Switch 2 版
+                if mapping and mapping.english_name:
+                    search_target = mapping.english_name
+                # 強制移除所有可能導致 IGDB 轉向 Switch 2 的字眼
+                search_target = search_target.replace("Nintendo Switch 2 Edition", "").replace("Switch 2", "")
+            
+            
+            search_query = self.clean_game_name(search_target)
+            print(f"🎯 [IGDB Search] 使用英文名搜尋: '{search_query}'")
+
+            igdb_results = self.igdb.search_game(search_query)
+            if not igdb_results: return None
+
+            best_match = None
+            clean_target_name = name.replace(" ", "").lower()
+
+            for item in igdb_results:
+                try:
+                    # A. 平台過濾 (Switch 2 ID = 508)
+                    platforms = item.get('platforms') or []
+                    p_ids = [p.get('id') if isinstance(p, dict) else p for p in platforms]
+                    item_name_raw = item.get('name', '')
+                    item_name_clean = item_name_raw.lower().replace(" ", "").replace("'", "") # 🌟 多移除單引號
+
+                    # 🛑 [平台攔截]
+                    if not is_targeting_switch2:
+                        # 目標不是 Switch 2，但結果是，直接踢掉
+                        if 508 in p_ids or "switch2" in item_name_clean: continue
+                    else:
+                        # 目標是 Switch 2，但結果不是，也踢掉
+                        if 508 not in p_ids and "switch2" not in item_name_clean: continue
+
+                    # B. 名稱驗證 (確保搜到的是正確的遊戲)
+                    alt_names = item.get('alternative_names', [])
+                    chinese_names = [n.get('name', '').replace(" ", "").lower() for n in alt_names if isinstance(n, dict)]
+
+                    # 🌟 [修正比對邏輯] - 整合你的 B 段與 C 段邏輯
+                    # 1. 優先判定：精準比對中文名 (你原本最信任的邏輯)
+                    is_match = clean_target_name in item_name_clean or any(clean_target_name in cn for cn in chinese_names)
+                    
+                    # 2. 🌟 補強判定：如果中文沒對上 (例如巫師、路易吉)，則比對搜尋用的英文
+                    if not is_match:
+                        search_query_clean = search_query.lower().replace(" ", "").replace("'", "")
+                        # 如果搜尋詞 (Luigi's Mansion 3) 跟 IGDB 結果 (luigismansion3) 對上了，就放行
+                        if search_query_clean in item_name_clean or item_name_clean in search_query_clean:
+                            is_match = True
+                            print(f"💡 [Heuristic Match] 中文別名未中，但搜尋詞 '{search_query}' 匹配成功")
+
+                    # 3. 🌟 Switch 2 特殊模糊匹配 (你原本寫好的)
+                    if not is_match and is_targeting_switch2:
+                        core_name = name.lower().replace("nintendoswitch2edition", "").replace("switch2", "").strip()
+                        if core_name in item_name_clean or "switch2" in item_name_clean:
+                            is_match = True
+                            print(f"⚠️ [Loose Match] 為 Switch 2 啟用模糊匹配成功: {item_name_raw}")
+
+                    if is_match:
+                        best_match = item
+                        break
+
+                except Exception:
+                    continue
+
+            # 🌟 2. 核心修改：只抓平台與 ID，其餘套用 Mapping
+            if best_match:
+                print(f"✅ [Final Match] ID: {best_match['id']} | 平台清單: {[p.get('name') for p in best_match.get('platforms', [])]}")
+                igdb_raw_name = best_match.get('name', '')
+                
+                
+                if mapping:
+                    # 強制鎖定：名稱、簡介等全部使用 Mapping 或現有 Game 資料
+                    # 我們只把 IGDB 的 id, cover, platforms 傳給儲存邏輯
+                    best_match['nsuid'] = nsuid
+
+                    best_match['chinese_name'] = mapping.game_name  
+                    best_match['name'] = mapping.english_name if mapping.english_name else igdb_raw_name
+
+                    if mapping and not mapping.english_name:
+                        # 只有當我們不是在找 Switch 2 遊戲時，才把 IGDB 的名字存入 Mapping
+                        if not is_targeting_switch2:
+                            # 存入前先洗乾淨
+                            clean_name = igdb_raw_name.replace("Nintendo Switch 2 Edition", "").replace("Switch 2", "").strip()
+                            mapping.english_name = clean_name
+                    # 同步更新 Mapping 表的英文名
+                    #if not mapping.english_name:
+                    #    mapping.english_name = igdb_original_english
+
+                    # 🌟 重要：執行儲存
+                    game = self.store_game_logic(best_match)
+
+                    # 🌟 重要：回填 ID 並強制 Commit
+                    if not mapping.igdb_id:
+                        mapping.igdb_id = game.id
+
+                    db.session.commit() # 確保 Mapping 與 GamePlatformID 同時入庫
+                    print(f"🔗 [Link Success] {mapping.game_name} 已綁定 IGDB:{game.id} 與 NSUID:{nsuid}")
+                    return game
+                
+                
+                # store_game_logic 會根據 best_match['platforms'] 自動更新 GamePlatformID 表
+                return self.store_game_logic(best_match)
+            
+            # 🌟 [修正]：如果執行到這裡，代表 best_match 為 None (搜尋無結果)
+            print(f"⚠️ [IGDB NotFound] 搜尋無結果，嘗試為 {name} 建立本地基準紀錄")
+            if mapping:
+                print(f"⚠️ [IGDB NotFound] 執行虛擬綁定流程: {name}")
+                # 建立一個簡單的類別，模擬 Game 物件的行為
+                class ShadowGame:
+                    def __init__(self, m):
+                        self.id = None  # ID 設為 None，讓後續查價知道這是無 ID 模式
+                        self.name = m.english_name or name
+                        self.chinese_name = m.game_name
+                        self.cover_url = m.icon_url
+                return ShadowGame(mapping)
+            
+            return None
+
+        except Exception as e:
+            print(f"🔥 [Fatal Error] {e}")
+            return None
     
     def clean_game_name(self, name):
         """
@@ -338,15 +506,15 @@ class MainManager:
 
         # 1. 🌟 新增：移除 PTT 搜尋大敵 —— 書名號
         name = name.replace('《', '').replace('》', '')
-
-        # 2. 移除 ™ 和 ® 符號 (原本的)
-        name = name.replace('™', '').replace('®', '')
         
         # 3. 移除括號內的內容 (原本的)
         name = re.sub(r'\(.*?\)', '', name)
+
+        # 1. 移除特殊符號，但保留中文字與英數字
+        clean = re.sub(r'[^\w\s\u4e00-\u9fff]', ' ', name)
         
         # 🌟 關鍵修正：先切斷副標題 (遇到冒號或連字號就切斷)
-        name = re.split(r'[:：\-－]', name)[0]
+        #name = re.split(r'[:：\-－]', name)[0]
         
         # 🌟 關鍵修正：要把「中間」的空格也殺掉，不能只用 strip()
         # 同時處理半形空格 " " 和全形空格 "　"
@@ -354,3 +522,36 @@ class MainManager:
         
         # 確保回傳的是最乾淨的連體字，例如 "巫師3"
         return name.strip()
+    
+    def ensure_game_exists(self, game_id, name_fallback="Unknown Game", nsuid=None):
+        """
+        確保 games 表中一定有這款遊戲，若無則從 IGDB 補完。
+        """
+        from models import Game
+        
+        # 1. 檢查本地資料庫是否已存在該 ID
+        game = db.session.get(Game, game_id)
+        
+        if not game:
+            print(f"📡 [Sync] 偵測到 ID {game_id} 尚未建立主表資料，執行背景同步...")
+            try:
+                # 2. 透過 IGDB API 獲取完整遊戲資訊
+                game_data = self.igdb.get_game_by_id(game_id)
+                
+                if game_data:
+                    if nsuid: 
+                        game_data['nsuid'] = nsuid # 🌟 傳遞 nsuid
+                    # 3. 調用你現有的 store_game_logic 將其存入 games 表
+                    game = self.store_game_logic(game_data)
+                    print(f"✅ 已成功補完 Game ID {game_id} 的主表紀錄")
+                else:
+                    # 4. 如果 IGDB 沒回應，建一個基礎紀錄防止外鍵報錯
+                    game = Game(id=game_id, name=name_fallback, chinese_name=name_fallback)
+                    db.session.add(game)
+                    db.session.commit()
+                    print(f"⚠️ IGDB 查無此 ID，已建立基礎紀錄: {game_id}")
+            except Exception as e:
+                db.session.rollback()
+                print(f"❌ 補完遊戲資料時發生錯誤: {e}")
+                
+        return game

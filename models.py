@@ -47,6 +47,13 @@ class Game(db.Model):
             'diff': abs(diff),
             'has_both': d_price is not None and r_price is not None
         }
+    
+    @property
+    def nsuid(self):
+        for p in self.platform_ids:
+            if p.platform and 'Switch' in p.platform and p.external_id:
+                return p.external_id
+        return None
 
 # ----------------------------------------------------------------
 # 2. 平台外部 ID 表 (例如：Switch 用 NSUID, PS 用 ProductID)
@@ -76,6 +83,22 @@ class EShopMapping(db.Model):
     igdb_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=True)
     
     game = db.relationship('Game', backref='eshop_mapping', uselist=False)
+
+    @property
+    def platform_ids(self):
+        # 🌟 讓 Mapping 透過關聯的 game 物件去抓 platform_ids
+        return self.game.platform_ids if self.game else []
+
+    @property
+    def effective_nsuid(self):
+        """
+        定義一個新的屬性，明確邏輯：優先抓 Game 表存好的，沒有才抓 Mapping 自己的
+        """
+        # 1. 檢查有沒有關聯到 Game，且 Game 下面有沒有 platform_ids
+        if self.game and self.game.nsuid:
+            return self.game.nsuid
+        # 2. 如果沒綁定，回傳 Mapping 表自己的 nsuid 欄位
+        return self.nsuid
 
 # ----------------------------------------------------------------
 # 3. 市場行情紀錄表 (加入 Platform 欄位區分平台價格)

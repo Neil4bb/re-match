@@ -58,7 +58,7 @@ class PSStoreService:
             # 返回最便宜的符合項
             return sorted(unique_matches, key=lambda x: x['price'])[0] if unique_matches else None
         except Exception as e:
-            print(f"❌ PS 單次搜尋失敗 ({query_target}): {e}")
+            print(f"❌ PS 單次搜尋失敗 ({query_str}): {e}")
             return None
 
     def get_game_price(self, en_name, cn_name=None):
