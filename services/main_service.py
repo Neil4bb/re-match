@@ -471,42 +471,56 @@ class MainManager:
 
             # 🌟 2. 核心修改：只抓平台與 ID，其餘套用 Mapping
             if best_match:
-                print(f"✅ [Final Match] ID: {best_match['id']} | 平台清單: {[p.get('name') for p in best_match.get('platforms', [])]}")
-                igdb_raw_name = best_match.get('name', '')
+                igdb_id = best_match['id'] # 取得 IGDB 的 ID
+                
+                # --- 🌟 關鍵修正開始：主鍵衝突檢查 ---
+                existing_game = Game.query.get(igdb_id)
+                if existing_game:
+                    print(f"♻️ [Existing] 遊戲 ID {igdb_id} 已存在，直接執行關聯流程")
+                    game = existing_game
+                else:
+                    # 原本的儲存邏輯，封裝進 Try 防止單筆崩潰
+                    try:
+                        igdb_raw_name = best_match.get('name', '')
                 
                 
+                        if mapping:
+                            # 強制鎖定：名稱、簡介等全部使用 Mapping 或現有 Game 資料
+                            # 我們只把 IGDB 的 id, cover, platforms 傳給儲存邏輯
+                            best_match['nsuid'] = nsuid
+
+                            best_match['chinese_name'] = mapping.game_name  
+                            best_match['name'] = mapping.english_name if mapping.english_name else igdb_raw_name
+
+                            if mapping and not mapping.english_name:
+                                # 只有當我們不是在找 Switch 2 遊戲時，才把 IGDB 的名字存入 Mapping
+                                if not is_targeting_switch2:
+                                    # 存入前先洗乾淨
+                                    clean_name = igdb_raw_name.replace("Nintendo Switch 2 Edition", "").replace("Switch 2", "").strip()
+                                    mapping.english_name = clean_name
+                                    
+
+                        # 執行儲存
+                        game = self.store_game_logic(best_match)
+                    except Exception as save_err:
+                        db.session.rollback() # 🌟 儲存失敗務必回滾
+                        print(f"🔥 [Save Error] 存檔失敗: {save_err}")
+                        return None
+
+                # 🌟 重要：回填 Mapping 的 ID
                 if mapping:
-                    # 強制鎖定：名稱、簡介等全部使用 Mapping 或現有 Game 資料
-                    # 我們只把 IGDB 的 id, cover, platforms 傳給儲存邏輯
-                    best_match['nsuid'] = nsuid
-
-                    best_match['chinese_name'] = mapping.game_name  
-                    best_match['name'] = mapping.english_name if mapping.english_name else igdb_raw_name
-
-                    if mapping and not mapping.english_name:
-                        # 只有當我們不是在找 Switch 2 遊戲時，才把 IGDB 的名字存入 Mapping
-                        if not is_targeting_switch2:
-                            # 存入前先洗乾淨
-                            clean_name = igdb_raw_name.replace("Nintendo Switch 2 Edition", "").replace("Switch 2", "").strip()
-                            mapping.english_name = clean_name
-                    # 同步更新 Mapping 表的英文名
-                    #if not mapping.english_name:
-                    #    mapping.english_name = igdb_original_english
-
-                    # 🌟 重要：執行儲存
-                    game = self.store_game_logic(best_match)
-
-                    # 🌟 重要：回填 ID 並強制 Commit
                     if not mapping.igdb_id:
                         mapping.igdb_id = game.id
 
-                    db.session.commit() # 確保 Mapping 與 GamePlatformID 同時入庫
-                    print(f"🔗 [Link Success] {mapping.game_name} 已綁定 IGDB:{game.id} 與 NSUID:{nsuid}")
-                    return game
+                    try:
+                        db.session.commit() 
+                        print(f"🔗 [Link Success] {mapping.game_name} 已綁定 IGDB:{game.id} 與 NSUID:{nsuid}")
+                    except Exception as commit_err:
+                        db.session.rollback() # 🌟 防止 Session 被鎖死
+                        print(f"🔥 [Commit Error] Mapping 更新失敗: {commit_err}")
                 
+                return game
                 
-                # store_game_logic 會根據 best_match['platforms'] 自動更新 GamePlatformID 表
-                return self.store_game_logic(best_match)
             
             # 🌟 [修正]：如果執行到這裡，代表 best_match 為 None (搜尋無結果)
             print(f"⚠️ [IGDB NotFound] 搜尋無結果，嘗試為 {name} 建立本地基準紀錄")
