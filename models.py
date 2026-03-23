@@ -21,30 +21,44 @@ class Game(db.Model):
     # 關聯：被哪些使用者收藏或持有
     user_assets = db.relationship('UserAsset', backref='game', lazy=True)
 
-    def get_market_analysis(self, target_platform='Switch'):
-        """自動根據指定的平台進行數位 vs 實體的分析"""
-        sorted_prices = sorted(self.prices, key=lambda p: p.created_at, reverse=True)
+    def get_market_analysis(self, platform_mode='ns'):
+        # 1. 數位來源映射
+        target_source = 'eShop' if platform_mode == 'ns' else 'PS_Store'
         
-        # 動態決定數位商店來源
-        digital_source = 'eShop' if target_platform == 'Switch' else 'PS_Store'
+        # 2. PTT 標籤映射 (增加模糊匹配能力)
+        if platform_mode == 'ns':
+            ptt_platforms = ['NS', 'NS2', 'Switch', 'Nintendo Switch']
+        else:
+            # 涵蓋你資料庫中可能存的所有 PS 字眼
+            ptt_platforms = ['PS', 'PS4', 'PS5', 'PlayStation 4', 'PlayStation 5']
 
-        latest_digital = next((p for p in sorted_prices if p.source == digital_source), None)
-        latest_ptt = next((p for p in sorted_prices if p.source == 'PTT'), None)
+        # 3. 取得最新數位價 ( reversed 確保取到最新 created_at )
+        digital = next((p for p in reversed(self.prices) if p.source == target_source), None)
         
-        d_price = latest_digital.price if latest_digital else None
-        r_price = latest_ptt.price if latest_ptt else None
-        
+        # 4. 取得最新 PTT 價 ( 修正點：使用 in 檢查列表 )
+        retail = next((p for p in reversed(self.prices) 
+                    if p.source == 'PTT' and p.platform in ptt_platforms), None)
+
+        # 轉為數字運算
+        d_price = int(digital.price) if digital and digital.price else None
+        r_price = int(retail.price) if retail and retail.price else None
+
+        # 5. 價差邏輯
         suggestion = "資料不足"
         diff = 0
+        is_digital_cheaper = False
+
         if d_price and r_price:
             diff = r_price - d_price
             suggestion = "推薦買數位版" if diff > 0 else "推薦買實體版"
-            
+            is_digital_cheaper = diff > 0
+
         return {
             'eshop': d_price or "N/A",
             'retail': r_price or "N/A",
             'suggestion': suggestion,
             'diff': abs(diff),
+            'is_digital_cheaper': is_digital_cheaper,
             'has_both': d_price is not None and r_price is not None
         }
     

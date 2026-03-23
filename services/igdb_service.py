@@ -252,6 +252,24 @@ class IGDBService:
             print(f"💥 請求異常: {e}")
             return []
         
+    def get_game_platforms_only(self, game_id):
+        """專門為修復腳本設計：只獲取平台資訊，不更動名稱"""
+        if not self.access_token: self.get_access_token()
+        
+        body = f"fields name, platforms.name; where id = {game_id};"
+        
+        try:
+            res = requests.post(
+                "https://api.igdb.com/v4/games", 
+                headers={'Client-ID': self.client_id, 'Authorization': f'Bearer {self.access_token}'}, 
+                data=body
+            )
+            data = res.json()
+            return data[0] if data else None
+        except Exception as e:
+            print(f"❌ 僅平台查詢失敗 (ID: {game_id}): {e}")
+            return None
+        
 # --- 測試代碼 (當你直接執行此檔案時才會跑) ---
 if __name__ == "__main__":
     service = IGDBService()

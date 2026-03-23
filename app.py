@@ -56,10 +56,34 @@ def load_user(user_id):
 # --- 首頁：顯示所有監控中的遊戲 ---
 @app.route('/')
 def index():
-    # 一次性抓取所有遊戲及其關聯的價格，避免 N+1 問題
-    games = Game.query.all() 
-    return render_template('index.html', games=games)
+    platform_mode = request.args.get('platform', 'ns')
+    page = request.args.get('page', 1, type=int) # 取得當前頁碼
+    
+    from sqlalchemy.orm import joinedload
+    from models import GamePlatformID
 
+    # 1. 使用 joinedload 解決載入過慢的 N+1 問題
+    query = Game.query.options(joinedload(Game.platform_ids), joinedload(Game.prices))
+    
+    # 2. 修改過濾邏輯，確保 PS 遊戲能被搜到
+    if platform_mode == 'ns':
+        # 匹配包含 Switch 字眼的平台
+        query = query.join(GamePlatformID).filter(GamePlatformID.platform.like('%Switch%'))
+    else:
+        # 擴大 PS 的匹配範圍，包含 PS, PlayStation, PS4, PS5
+        query = query.join(GamePlatformID).filter(
+            (GamePlatformID.platform.like('%PS%')) | 
+            (GamePlatformID.platform.like('%PlayStation%'))
+        )
+
+    # 3. 使用分頁 (每頁 50 筆)，解決載入過久的問題
+    pagination = query.distinct().paginate(page=page, per_page=50, error_out=False)
+    games = pagination.items
+    
+    return render_template('index.html', 
+                           games=games, 
+                           pagination=pagination, 
+                           current_platform=platform_mode)
 # --- 註冊功能 ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():

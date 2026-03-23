@@ -73,7 +73,7 @@ def run_integrated_sync():
 def smart_sleep(index):
     """隨機休息策略，防止 IP 被封鎖"""
     if index % 50 == 0:
-        print("☕ 已處理 50 筆，長休息 180 秒...")
+        print("☕ 已處理 50 筆，長休息 60 秒...")
         time.sleep(60)
     else:
         wait = random.uniform(2.0, 5.0)

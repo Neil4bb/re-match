@@ -163,6 +163,24 @@ class MainManager:
                 existing_platform.external_id = nsuid_to_save
                 db.session.commit()
                 print(f"✅ [Platform Updated] ID: {nsuid_to_save}")
+
+        igdb_platforms = item.get('platforms', [])
+        for p_info in igdb_platforms:
+            p_name = p_info.get('name', '') if isinstance(p_info, dict) else ""
+            
+            # 只針對 PS 系列進行補齊
+            if any(k in p_name for k in ['PlayStation 4', 'PlayStation 5', 'PS4', 'PS5']):
+                exists_ps = GamePlatformID.query.filter_by(
+                    game_id=game.id, 
+                    platform=p_name
+                ).first()
+                
+                if not exists_ps:
+                    new_ps = GamePlatformID(game_id=game.id, platform=p_name)
+                    db.session.add(new_ps)
+        
+        # 最後補一個統一 commit，確保 PS 標籤與可能的其他更動存入
+        db.session.commit()
         
         return game
 
