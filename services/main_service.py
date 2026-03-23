@@ -316,52 +316,57 @@ class MainManager:
             
 
             # 3. --- eShop 區域 ---
-            if nsuid:
+            if nsuid and game_id:  # 🌟 加上 game_id 判斷
                 print(f"📡 [eShop] 使用 NSUID 查價: {nsuid}")
                 self.eshop.get_price_twd(game_id, nsuid)
                 rec = MarketPrice.query.filter_by(game_id=game_id, title=f"eShop_{nsuid}").first()
                 results['ns_digital'] = rec.price if rec else "--"
+            else:
+                print(f"⚠️ [Skip eShop] 無有效 GameID 或 NSUID，僅執行 API 查詢但不存檔")
             
 
             # 4. --- PTT 分平台區域 ---
+            if game_id: # 🌟 確保有實體遊戲 ID 才能執行 PTT 搜尋與存檔
+                ptt_keyword, filter_tag = self._get_ptt_search_strategy(search_query)
+        
+                print(f"🕵️ [PTT] 最終策略 - 關鍵字: {ptt_keyword} | 過濾器: {filter_tag}")
+                
+                
 
-            ptt_keyword, filter_tag = self._get_ptt_search_strategy(search_query)
-    
-            print(f"🕵️ [PTT] 最終策略 - 關鍵字: {ptt_keyword} | 過濾器: {filter_tag}")
+                # --- 第一次執行：獲取 PS 價格 ---
+                ptt_results_ps = self.ptt.search_game_prices(ptt_keyword, "PS", filter_tag=filter_tag)
+                if ptt_results_ps:
+                    best_info = ptt_results_ps[0]
+                    new_ptt = MarketPrice(
+                        game_id=game_id,
+                        source='PTT',
+                        title=best_info['title'],
+                        price=best_info['price'],
+                        source_url=best_info.get('url', "")
+                    )
+                    db.session.add(new_ptt)
+                    db.session.commit()
+                    results['ps_ptt'] = best_info['price']
+
+                # --- 第二次執行：獲取 NS 價格 ---
+                ptt_results_ns = self.ptt.search_game_prices(ptt_keyword, "NS", filter_tag=filter_tag)
+                if ptt_results_ns:
+                    best_info = ptt_results_ns[0]
+                    new_ptt = MarketPrice(
+                        game_id=game_id,
+                        source='PTT',
+                        title=best_info['title'],
+                        price=best_info['price'],
+                        source_url=best_info.get('url', "")
+                    )
+                    db.session.add(new_ptt)
+                    db.session.commit()
+                    results['ns_ptt'] = best_info['price']
+                
+            else:
+                # 如果沒 ID，依然可以印出訊息記錄，但不執行資料庫操作
+                print(f"⚠️ [Skip PTT] {search_query} 無有效 GameID，跳過 PTT 存檔邏輯")
             
-            
-
-            # --- 第一次執行：獲取 PS 價格 ---
-            ptt_results_ps = self.ptt.search_game_prices(ptt_keyword, "PS", filter_tag=filter_tag)
-            if ptt_results_ps:
-                best_info = ptt_results_ps[0]
-                new_ptt = MarketPrice(
-                    game_id=game_id,
-                    source='PTT',
-                    title=best_info['title'],
-                    price=best_info['price'],
-                    source_url=best_info.get('url', "")
-                )
-                db.session.add(new_ptt)
-                db.session.commit()
-                results['ps_ptt'] = best_info['price']
-
-            # --- 第二次執行：獲取 NS 價格 ---
-            ptt_results_ns = self.ptt.search_game_prices(ptt_keyword, "NS", filter_tag=filter_tag)
-            if ptt_results_ns:
-                best_info = ptt_results_ns[0]
-                new_ptt = MarketPrice(
-                    game_id=game_id,
-                    source='PTT',
-                    title=best_info['title'],
-                    price=best_info['price'],
-                    source_url=best_info.get('url', "")
-                )
-                db.session.add(new_ptt)
-                db.session.commit()
-                results['ns_ptt'] = best_info['price']
-            
-
             db.session.commit()
             return results
         
@@ -372,6 +377,11 @@ class MainManager:
 
     def _save_to_market_price(self, game_id, source, title, price, url):
         """輔助存檔，確保不重複紀錄"""
+        # 🌟 修正：如果沒有 game_id，直接跳過存檔，避免資料庫報錯
+        if not game_id:
+            print(f"⚠️ [Skip Save] 無有效 GameID，跳過 {source} 價格存檔")
+            return
+
         existing = MarketPrice.query.filter_by(game_id=game_id, source=source, title=title).first()
         if not existing:
             new_price = MarketPrice(
