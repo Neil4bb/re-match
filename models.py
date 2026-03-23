@@ -22,26 +22,25 @@ class Game(db.Model):
     user_assets = db.relationship('UserAsset', backref='game', lazy=True)
 
     def get_market_analysis(self, platform_mode='ns'):
-        # 1. 數位來源映射
+        # 1. 根據模式決定數位價來源
         target_source = 'eShop' if platform_mode == 'ns' else 'PS_Store'
         
-        # 2. PTT 標籤映射 (增加模糊匹配能力)
-        if platform_mode == 'ns':
-            ptt_platforms = ['NS', 'NS2', 'Switch', 'Nintendo Switch']
-        else:
-            # 涵蓋你資料庫中可能存的所有 PS 字眼
-            ptt_platforms = ['PS', 'PS4', 'PS5', 'PlayStation 4', 'PlayStation 5']
-
-        # 3. 取得最新數位價 ( reversed 確保取到最新 created_at )
+        # 2. 取得該模式對應的最新數位價
         digital = next((p for p in reversed(self.prices) if p.source == target_source), None)
         
-        # 4. 取得最新 PTT 價 ( 修正點：使用 in 檢查列表 )
-        retail = next((p for p in reversed(self.prices) 
-                    if p.source == 'PTT' and p.platform in ptt_platforms), None)
+        # 3. 🌟 關鍵修正：改用「標題關鍵字」來抓取二手價
+        if platform_mode == 'ns':
+            # 找 PTT 來源且標題包含 [NS ]
+            retail = next((p for p in reversed(self.prices) 
+                        if p.source == 'PTT' and '[NS' in (p.title or '')), None)
+        else:
+            # 找 PTT 來源且標題包含 [PS4 ] 或 [PS5 ]
+            retail = next((p for p in reversed(self.prices) 
+                        if p.source == 'PTT' and ('[PS4' in (p.title or '') or '[PS5' in (p.title or ''))), None)
 
-        # 轉為數字運算
-        d_price = int(digital.price) if digital and digital.price else None
-        r_price = int(retail.price) if retail and retail.price else None
+        # 4. 轉換為整數進行運算
+        d_price = int(digital.price) if digital else None
+        r_price = int(retail.price) if retail else None
 
         # 5. 價差邏輯
         suggestion = "資料不足"

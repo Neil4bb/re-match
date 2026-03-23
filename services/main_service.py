@@ -242,12 +242,23 @@ class MainManager:
                 ptt_results = self.ptt.search_game_prices(search_query) 
                 for r in ptt_results:
                     if not MarketPrice.query.filter_by(game_id=game.id, title=r['title']).first():
+                        # 🌟 新增：根據 PTT 標題動態決定平台標籤
+                        post_title = r['title'].upper()
+                        p_tag = 'Switch' # 預設值
+                        if '[PS5' in post_title:
+                            p_tag = 'PlayStation 5'
+                        elif '[PS4' in post_title:
+                            p_tag = 'PlayStation 4'
+                        elif '[NS' in post_title:
+                            p_tag = 'Switch'
+
                         new_price = MarketPrice(
                             game_id=game.id,
                             source='PTT',
+                            platform=p_tag,
                             title=r['title'],
                             price=r['price'],
-                            url=r['url']
+                            source_url=r['url']
                         )
                         db.session.add(new_price)
                 db.session.commit()
@@ -358,6 +369,7 @@ class MainManager:
                     new_ptt = MarketPrice(
                         game_id=game_id,
                         source='PTT',
+                        platform='PlayStation 5',
                         title=best_info['title'],
                         price=best_info['price'],
                         source_url=best_info.get('url', "")
@@ -373,6 +385,7 @@ class MainManager:
                     new_ptt = MarketPrice(
                         game_id=game_id,
                         source='PTT',
+                        platform='Switch',
                         title=best_info['title'],
                         price=best_info['price'],
                         source_url=best_info.get('url', "")
@@ -402,9 +415,11 @@ class MainManager:
 
         existing = MarketPrice.query.filter_by(game_id=game_id, source=source, title=title).first()
         if not existing:
+            p_tag = 'PlayStation 5' if source == 'PS_Store' else 'Switch'
             new_price = MarketPrice(
                 game_id=game_id,
                 source=source,
+                platform=p_tag,
                 title=title,
                 price=price,
                 source_url=url
