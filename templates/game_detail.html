@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-4">
+            <img src="{{ game.cover_url }}" class="img-fluid rounded shadow" alt="{{ game.name }}">
+            <h2 class="mt-3">{{ game.chinese_name }}</h2>
+            <p class="text-muted">{{ game.name }}</p>
+            <hr>
+            <h5>遊戲簡介</h5>
+            <p>{{ game.summary or "暫無簡介" }}</p>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-graph-up"></i> 歷史價格走勢 (PTT 二手 / 數位商城)
+                </div>
+                <div class="card-body">
+                    <canvas id="priceChart" width="400" height="250"></canvas>
+                </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-3">
+                <h1 class="h2 mb-0">{{ game.chinese_name or game.name }}</h1>
+                <button id="refresh-btn" class="btn btn-sm btn-outline-secondary" onclick="refreshPrice({{ game.id }})">
+                    <i class="bi bi-arrow-clockwise"></i> 即時更新行情
+                </button>
+            </div>
+            
+            <table class="table table-sm mt-4">
+                <thead>
+                    <tr><th>日期</th><th>來源</th><th>價格</th></tr>
+                </thead>
+                <tbody>
+                    {% for p in game.prices|reverse %}
+                    <tr>
+                        <td>{{ p.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td><span class="badge bg-secondary">{{ p.source }}</span></td>
+                        <td>NT$ {{ p.price }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const ctx = document.getElementById('priceChart').getContext('2d');
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: {{ labels|tojson }},
+        datasets: [{
+            label: '價格走勢',
+            data: {{ prices|tojson }},
+            borderColor: 'rgb(75, 192, 192)',
+            tension: 0.1,
+            fill: false
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { beginAtZero: false }
+        }
+    }
+});
+
+function refreshPrice(gameId) {
+    const btn = document.getElementById('refresh-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 更新中...';
+
+    fetch(`/api/game/${gameId}/refresh`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                location.reload(); // 更新成功後重新整理頁面顯示新價格
+            } else {
+                alert('更新失敗: ' + data.message);
+                btn.disabled = false;
+                btn.innerHTML = '即時更新行情';
+            }
+        });
+}
+</script>
+{% endblock %}

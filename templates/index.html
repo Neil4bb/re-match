@@ -30,15 +30,21 @@
                                 <th class="pe-4">操作</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="game-container">
                             {% for game in games %}
                                 {% set analysis = game.get_market_analysis(platform_mode=current_platform) %}
                                 <tr>
                                     <td class="ps-4">
                                         <div class="d-flex align-items-center">
-                                            <img src="{{ game.cover_url }}" class="rounded shadow-sm me-3" style="width: 50px; height: 65px; object-fit: cover;">
+                                            <a href="{{ url_for('game_detail', game_id=game.id) }}" class="text-decoration-none">
+                                                <img src="{{ game.cover_url }}" class="rounded shadow-sm me-3" style="width: 50px; height: 65px; object-fit: cover;">
+                                            </a>
                                             <div>
-                                                <div class="fw-bold">{{ game.chinese_name or game.name }}</div>
+                                                <div class="fw-bold">
+                                                    <a href="{{ url_for('game_detail', game_id=game.id) }}" class="text-decoration-none">
+                                                    {{ game.chinese_name or game.name }}
+                                                    </a>
+                                                </div>
                                                 <span class="badge {% if current_platform == 'ns' %}bg-danger{% else %}bg-primary{% endif %} opacity-75" style="font-size: 0.65rem;">
                                                     {{ 'Nintendo' if current_platform == 'ns' else 'PlayStation' }}
                                                 </span>
@@ -67,8 +73,17 @@
                         </tbody>
                     </table>
                 </div>
+
+                <div id="loading-spinner" style="display: none; text-align: center; padding: 20px;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+
             </div>
         </div>
-    </div>
+    </div>    
 </div>
+
+<script src="{{ url_for('static', filename='js/index.js') }}"></script>
 {% endblock %}

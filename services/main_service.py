@@ -7,6 +7,7 @@ from flask import current_app
 from services.ptt_service import PttAdapter
 from sqlalchemy import or_
 import re, time, random, unicodedata
+from datetime import datetime, timedelta
 
 class MainManager:
     def __init__(self):
@@ -265,9 +266,31 @@ class MainManager:
 
     # services/main_service.py
 
-    def get_single_game_market_data(self, game_id, nsuid=None, name=None, is_priority=False):
-        try:
+    def get_single_game_market_data(self, game_id, nsuid=None, name=None, force_refresh=False):
+        """
+        獲取單一遊戲的行情資料（解決第二、三點需求）
+        :param force_refresh: 是否跳過快取檢查，強制執行爬蟲
+        """
+        # 1. 如果不是強制刷新，先檢查資料庫（第二點：快取優先）
+        if not force_refresh:
+            # 找出該遊戲最新的行情紀錄
+            latest_price = MarketPrice.query.filter_by(game_id=game_id)\
+                .order_by(MarketPrice.created_at.desc()).first()
             
+            # 如果有資料且在 24 小時內，直接回傳
+            if latest_price and (datetime.now() - latest_price.created_at) < timedelta(hours=24):
+                print(f"📦 [Cache Hit] 遊戲 {game_id} 尚在 24 小時快取期內，跳過爬蟲")
+                return self._get_cached_market_data(game_id)
+
+        # 2. 執行即時查價邏輯（第三點：強制更新 或 快取失效）
+        print(f"🚀 [Live Fetch] 正在為遊戲 {game_id} 執行即時查價...")
+        game = Game.query.get(game_id)
+        if not game:
+            return {"error": "Game not found"}
+
+        # --- 以下是原本的爬蟲呼叫邏輯 ---
+        
+        try:
             
             search_query = name # 預設值
             
@@ -399,12 +422,55 @@ class MainManager:
                 print(f"⚠️ [Skip PTT] {search_query} 無有效 GameID，跳過 PTT 存檔邏輯")
             
             db.session.commit()
-            return results
+            return self._get_cached_market_data(game_id)
         
         except Exception as e:
             db.session.rollback()
             return {'status': 'error', 'message': str(e)}
+        
 
+    def _get_cached_market_data(self, game_id):
+        """私有方法：從資料庫抓取資料並格式化（相容新舊需求）"""
+        # 抓取該遊戲所有的價格紀錄，按時間由新到舊
+        all_prices = MarketPrice.query.filter_by(game_id=game_id).order_by(MarketPrice.created_at.desc()).all()
+        
+        # 建立一個相容舊格式的字典
+        formatted = {
+            'status': 'success',
+            'ps_digital': "--",
+            'ps_ptt': "--",
+            'ns_digital': "--",
+            'ns_ptt': "--",
+            'history': [] # 🌟 新增：給圖表用的完整清單
+        }
+
+        for p in all_prices:
+            # 1. 填入最新的價格 (只填第一次遇到的來源)
+            if p.source == 'PS_Store' and formatted['ps_digital'] == "--":
+                formatted['ps_digital'] = p.price
+            elif p.source == 'PTT' and 'PlayStation' in (p.platform or '') and formatted['ps_ptt'] == "--":
+                formatted['ps_ptt'] = p.price
+            elif p.source == 'eShop' and formatted['ns_digital'] == "--":
+                formatted['ns_digital'] = p.price
+            elif p.source == 'PTT' and 'Switch' in (p.platform or '') and formatted['ns_ptt'] == "--":
+                formatted['ns_ptt'] = p.price
+                
+            # 2. 填入歷史紀錄
+            formatted['history'].append({
+                'source': p.source,
+                'platform': p.platform,
+                'price': p.price,
+                'date': p.created_at.strftime('%Y-%m-%d %H:%M')
+            })
+
+        return formatted
+    
+    def get_cached_only_data(self, game_id):
+        """只從資料庫拿資料，絕對不觸發網路爬蟲"""
+        latest_price = MarketPrice.query.filter_by(game_id=game_id).first()
+        if not latest_price:
+            return {} # 或者回傳預設的空值結構
+        return self._get_cached_market_data(game_id)
 
     def _save_to_market_price(self, game_id, source, title, price, url):
         """輔助存檔，確保不重複紀錄"""
@@ -425,6 +491,8 @@ class MainManager:
                 source_url=url
             )
             db.session.add(new_price)
+            db.session.commit() 
+            print(f"✅ [Price Saved] {source} 價格已入庫: NT$ {price}")
         
     # 在 main_service.py 的 MainManager 類別中新增
     def find_and_store_single_game(self, name, nsuid):
@@ -446,6 +514,7 @@ class MainManager:
                 # 強制移除所有可能導致 IGDB 轉向 Switch 2 的字眼
                 search_target = search_target.replace("Nintendo Switch 2 Edition", "").replace("Switch 2", "")
             
+            search_target = re.split(r'[:：\-－–—]', search_target)[0].strip()
             
             search_query = self.clean_game_name(search_target)
             print(f"🎯 [IGDB Search] 使用英文名搜尋: '{search_query}'")
