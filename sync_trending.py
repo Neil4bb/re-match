@@ -1,7 +1,7 @@
 import time
 import random
 from app import app, db
-from models import Game, EShopMapping
+from models import Game, UserAsset
 from services.main_service import MainManager
 from sqlalchemy.exc import IntegrityError, PendingRollbackError
 
@@ -9,28 +9,36 @@ def run_integrated_sync():
     with app.app_context():
         manager = MainManager()
         
-        # 1. 取得執行目標
-        existing_games = Game.query.all()
-        # 這裡建議加上 order_by，確保重新啟動時順序一致
-        pending_mappings = EShopMapping.query.filter(EShopMapping.igdb_id == None).all()
-        
-        print(f"🔥 任務啟動：既存遊戲 {len(existing_games)} 筆，待處理 Mapping {len(pending_mappings)} 筆")
+        # 🌟 核心優化：只抓取「出現在使用者資產箱」裡的遊戲 ID
+        # 使用 distinct() 確保同款遊戲被多人收藏時，只會爬一次
+        target_game_ids = db.session.query(UserAsset.game_id).distinct().all()
+        target_game_ids = [tid[0] for tid in target_game_ids if tid[0] is not None]
 
-        # --- 第一階段：既存遊戲查價 ---
-        print("\n--- 階段 1：更新既存遊戲價格 ---")
+        # 根據這些 ID 抓取完整的 Game 物件
+        existing_games = Game.query.filter(Game.id.in_(target_game_ids)).all()
+        
+        print(f"🔥 任務啟動：僅針對使用者關注的 {len(existing_games)} 筆遊戲進行更新")
+
+        # --- 執行查價 ---
         for index, game in enumerate(existing_games, 1):
             try:
-                print(f"[{index}/{len(existing_games)}] 📡 查價中: {game.chinese_name or game.name}")
+                # 取得該遊戲對應的 NSUID (從關聯表抓)
+                # 這是為了確保 eshop 查價能精準命中
+                platform_rec = GamePlatformID.query.filter_by(game_id=game.id, platform='Switch').first()
+                current_nsuid = platform_rec.external_id if platform_rec else None
+
+                print(f"[{index}/{len(existing_games)}] 📡 監控中遊戲查價: {game.chinese_name or game.name}")
+                
                 manager.get_single_game_market_data(
                     game_id=game.id, 
-                    nsuid=game.nsuid, 
+                    nsuid=current_nsuid, 
                     name=game.chinese_name or game.name
                 )
-                db.session.commit() # 🌟 每筆存檔，最穩
+                db.session.commit()
             except Exception as e:
-                db.session.rollback() # 🌟 萬一出錯，立即修復 Session
-                print(f"❌ 階段 1 報錯 (跳過): {e}")
-            
+                db.session.rollback()
+                print(f"💥 處理 {game.name} 時發生錯誤: {e}")
+
             smart_sleep(index)
 
         # --- 第二階段：處理 Mapping 表 ---

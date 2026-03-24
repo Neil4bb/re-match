@@ -61,6 +61,7 @@ class IGDBService:
         body = f"""
         search "{game_name}"; 
         fields name, cover.url, summary, category, platforms.id, platforms.name, alternative_names.name; 
+        where platforms = {target_platforms};
         limit 10;
         """
         
@@ -73,7 +74,11 @@ class IGDBService:
 
             if not raw_games:
                 print(f"🔍 模式切換：執行模糊比對...")
-                body = f'fields name, cover.url, summary, category, platforms.id, platforms.name, alternative_names.name; where name ~ *"{game_name}"*; limit 10;'
+                body = f"""
+                fields name, cover.url, summary, category, platforms.id, platforms.name, alternative_names.name; 
+                where name ~ *"{game_name}"* & platforms = {target_platforms}; 
+                limit 10;
+                """
                 response = requests.post(search_url, headers=headers, data=body)
                 raw_games = response.json()
 

@@ -212,16 +212,12 @@ def logout():
 
 @app.route('/search')
 def search():
-    query = request.args.get('q', '') 
+    query = request.args.get('q', '').strip()
     
     results = []
     if query:
         # 1. 呼叫我們新寫的「智慧搜尋」，它會回傳字典清單
         results = manager.search_games(query)
-        
-        # 2. 選配：如果你希望「搜到就存」的舊行為不變
-        # 你可以對 results 做迴圈呼叫 store_game_logic
-        # 但我建議不要，讓「點擊詳情」去觸發儲存會更流暢。
     
     return render_template('search_results.html', games=results, query=query)
 
@@ -236,6 +232,22 @@ def get_market_api(game_id):
     force = request.args.get('force', 'false').lower() == 'true'
     
     clean_id = str(game_id).strip().lower()
+
+    # 🌟 新增：處理虛擬 ID 路徑 (解決認親前的 400 錯誤)
+    # 當前端傳入 nsuid_7001... 時，代表這是本地字典有、但 IGDB 尚未綁定的遊戲
+    if clean_id.startswith('nsuid_'):
+        real_nsuid = clean_id.replace('nsuid_', '')
+        print(f"🔗 [Virtual ID Route] 偵測到虛擬 ID，啟動強制認親: {real_nsuid}")
+        
+        # 執行認親存檔流程
+        game = manager.find_and_store_single_game(name, real_nsuid)
+        if game and game.id:
+            # 認親成功後，改用真正的 ID 執行查價
+            data = manager.get_single_game_market_data(game.id, nsuid=real_nsuid, name=name, force_refresh=force)
+            data['new_game_id'] = game.id # 讓前端更新 DOM 中的 ID
+            return jsonify(data)
+        else:
+            return jsonify({'status': 'error', 'message': '認親失敗，無法獲取行情'}), 404
     
     # 情況 1: 已經有 ID 的標準路徑 (最常用)
     if clean_id.isdigit():
@@ -255,18 +267,26 @@ def get_market_api(game_id):
             
     return jsonify({'status': 'error', 'message': '無效的請求'}), 400
 
-# --- 資產頁：僅顯示已購遊戲 ---
+# --- 資產頁  ---
 @app.route('/my-assets')
-@login_required # 強制登入才能訪問
+@login_required
 def my_assets():
-    # 直接從 current_user 獲取其擁有的 assets
-    all_user_assets = current_user.assets
-
-    # 根據狀態分類
-    owned = [a for a in all_user_assets if a.status == 'owned']
-    wishlist = [a for a in all_user_assets if a.status == 'wishlist']
-
-    return render_template('assets.html', owned=owned , wishlist=wishlist)
+    # 接收平台 (預設 ns) 與 檢視模式 (預設 wishlist)
+    platform = request.args.get('platform', 'ns')
+    view = request.args.get('view', 'wishlist')
+    
+    # 抓取該使用者的所有資產
+    user_assets = UserAsset.query.filter_by(user_id=current_user.id).all()
+    
+    # 根據 view 過濾
+    wishlist = [a for a in user_assets if a.status == 'wishlist']
+    owned = [a for a in user_assets if a.status == 'owned']
+    
+    return render_template('assets.html', 
+                           wishlist=wishlist, 
+                           owned=owned, 
+                           current_platform=platform, 
+                           current_view=view)
 
 # 修改為同時支援 GET (原本的跳轉) 與 POST (JS 請求)
 @app.route('/add_to_assets/<int:game_id>', methods=['GET', 'POST'])
@@ -279,16 +299,20 @@ def add_to_assets(game_id):
             user_id=current_user.id,
             game_id=game_id,
             status='wishlist',
-            platform='Switch'
+            platform='Switch' # 預設平台，可根據需求調整
         )
         db.session.add(new_asset)
         db.session.commit()
     
-    # --- 關鍵修正：判斷請求方式 ---
-    if request.method == 'POST':
-        return '', 200 # 讓 JS 收到 OK 訊號
+    # 🌟 關鍵修正：如果是 JavaScript 發送的 POST 請求，回傳 JSON
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.method == 'POST':
+        return jsonify({
+            'status': 'success',
+            'message': '已加入願望清單',
+            'game_id': game_id
+        }), 200
     
-    # 這是給原本點擊連結的使用者導向用的
+    # 傳統點擊連結則維持跳轉
     flash('成功加入願望清單！')
     return redirect(url_for('index'))
 

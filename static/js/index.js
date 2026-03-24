@@ -84,10 +84,48 @@ function renderGames(games) {
                     ${game.diff > 0 ? `<div class="small text-muted mt-1">價差: NT$ ${game.diff}</div>` : ''}
                 </td>
                 <td class="pe-4">
-                    <a href="/add_to_assets/${game.id}" class="btn btn-sm btn-outline-primary">追蹤</a>
+                    <a href="/add_to_assets/${game.id}" 
+                    class="btn btn-sm btn-outline-primary btn-track" 
+                    data-id="${game.id}">追蹤</a>
                 </td>
             </tr>
         `;
         container.insertAdjacentHTML('beforeend', row);
     });
 }
+
+document.addEventListener('click', function(e) {
+    // 檢查點擊的是否為追蹤按鈕 (我們稍後會在 HTML 加上 btn-track 這個 class)
+    if (e.target && e.target.classList.contains('btn-track')) {
+        e.preventDefault(); // 🛑 阻止 <a> 標籤跳轉
+        
+        const btn = e.target;
+        const gameId = btn.getAttribute('data-id');
+        const url = `/add_to_assets/${gameId}`;
+
+        // 防止重複發送
+        if (btn.disabled) return;
+        btn.disabled = true;
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(res => {
+            if (res.ok) {
+                // ✨ 更新按鈕樣式：變色、換字
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-success');
+                btn.innerHTML = '✓ 已追蹤';
+                btn.disabled = true; // 追蹤後禁用按鈕
+            } else {
+                alert('追蹤失敗，請稍後再試');
+                btn.disabled = false;
+            }
+        })
+        .catch(err => {
+            console.error('追蹤錯誤:', err);
+            btn.disabled = false;
+        });
+    }
+});

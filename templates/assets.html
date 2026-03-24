@@ -4,138 +4,91 @@
 <div class="row">
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>💰 我的資產與清單</h2>
-            <a href="{{ url_for('search') }}" class="btn btn-outline-primary">🔍 搜尋並加入新遊戲</a>
+            <h2 class="fw-bold">💰 我的資產箱</h2>
+            
+            <div class="btn-group shadow-sm">
+                <a href="{{ url_for('my_assets', platform=current_platform, view='wishlist') }}" 
+                   class="btn {% if current_view == 'wishlist' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                   希望清單 ({{ wishlist|length }})
+                </a>
+                <a href="{{ url_for('my_assets', platform=current_platform, view='owned') }}" 
+                   class="btn {% if current_view == 'owned' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                   已持有 ({{ owned|length }})
+                </a>
+            </div>
         </div>
 
-        <ul class="nav nav-tabs mb-3" id="assetTab" role="tablist">
-            <li class="nav-item">
-                <button class="nav-link active" id="owned-tab" data-bs-toggle="tab" data-bs-target="#owned" type="button">已持有 ({{ owned|length }})</button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="wishlist-tab" data-bs-toggle="tab" data-bs-target="#wishlist" type="button">希望清單 ({{ wishlist|length }})</button>
-            </li>
-        </ul>
+        <div class="mb-4">
+            <ul class="nav nav-pills bg-white p-2 rounded shadow-sm border d-inline-flex">
+                <li class="nav-item">
+                    <a class="nav-link {% if current_platform == 'ns' %}active bg-danger text-white{% else %}text-dark{% endif %}" 
+                       href="{{ url_for('my_assets', platform='ns', view=current_view) }}">🔴 Nintendo</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_platform == 'ps' %}active bg-primary text-white{% else %}text-dark{% endif %}" 
+                       href="{{ url_for('my_assets', platform='ps', view=current_view) }}">🔵 PlayStation</a>
+                </li>
+            </ul>
+        </div>
 
-        <div class="tab-content" id="assetTabContent">
-            <div class="tab-pane fade show active" id="owned" role="tabpanel">
-                <div class="card shadow-sm">
-                    <table class="table mb-0 align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>遊戲名稱</th>
-                                <th>購入價格</th>
-                                <th>當前分析</th>
-                                <th>操作</th> </tr>
-                        </thead>
-                        <tbody>
-                            {% for asset in owned %}
-                                {% set res = asset.get_analysis() %}
-                                <tr>
-                                    <td class="d-flex align-items-center">
-                                        <div class="me-3">
-                                            <img src="{{ asset.game.cover_url }}" style="width: 45px; height: 60px; object-fit: cover;" class="rounded shadow-sm">
-                                        </div>
-                                        <div>
-                                            <div class="fw-bold">{{ asset.game.chinese_name or asset.game.name }}</div>
-                                        </div>
-                                    </td>
-                                    <td class="fw-bold text-primary">NT$ {{ asset.purchase_price or '0' }}</td>
-                                    <td>
-                                        <span class="badge bg-{{ res.status }}">{{ res.reason }}</span>
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-link p-0 me-2" data-bs-toggle="modal" data-bs-target="#editOwned{{ asset.id }}">✏️ 編輯價格</button>
-                                        <form action="{{ url_for('delete_asset', asset_id=asset.id) }}" method="POST" class="d-inline">
-                                            <button type="submit" class="btn btn-sm btn-link text-danger p-0" onclick="return confirm('確定要移除此紀錄嗎？')">🗑️ 移除</button>
-                                        </form>
-
-                                        <div class="modal fade" id="editOwned{{ asset.id }}" tabindex="-1">
-                                            <div class="modal-dialog">
-                                                <form class="modal-content text-dark" action="{{ url_for('edit_asset', asset_id=asset.id) }}" method="POST">
-                                                    <div class="modal-header">
-                                                        <h5 class="modal-title">編輯資產 - {{ asset.game.name }}</h5>
-                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                                    </div>
-                                                    <div class="modal-body">
-                                                        <div class="mb-3">
-                                                            <label class="form-label">實際購入價格 (TWD)</label>
-                                                            <input type="number" name="purchase_price" class="form-control" value="{{ asset.purchase_price or 0 }}">
-                                                        </div>
-                                                        <input type="hidden" name="status" value="owned">
-                                                    </div>
-                                                    <div class="modal-footer">
-                                                        <button type="submit" class="btn btn-primary w-100">儲存變更</button>
-                                                    </div>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="tab-pane fade" id="wishlist" role="tabpanel">
-                <div class="card shadow-sm">
-                    <table class="table mb-0 align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>遊戲名稱</th>
+        <div class="card shadow-sm border-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="ps-4">遊戲名稱</th>
+                            {% if current_view == 'wishlist' %}
                                 <th>目標價格</th>
                                 <th>市場行情</th>
                                 <th>分析</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for asset in wishlist %}
-                                {% set res = asset.get_analysis() %}
-                                <tr>
-                                    <td>{{ asset.game.chinese_name or asset.game.name }}</td>
+                            {% else %}
+                                <th>購入價格</th>
+                                <th>當前價值</th>
+                                <th>損益分析</th>
+                            {% endif %}
+                            <th class="pe-4 text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set display_list = wishlist if current_view == 'wishlist' else owned %}
+                        
+                        {% for asset in display_list %}
+                            {% set analysis = asset.game.get_market_analysis(platform_mode=current_platform) %}
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="d-flex align-items-center">
+                                        <a href="{{ url_for('game_detail', game_id=asset.game.id) }}">
+                                            <img src="{{ asset.game.cover_url }}" style="width: 40px; height: 50px; object-fit: cover;" class="rounded me-3">
+                                        </a>
+                                        <span class="fw-bold">{{ asset.game.chinese_name or asset.game.name }}</span>
+                                    </div>
+                                </td>
+                                
+                                {% if current_view == 'wishlist' %}
                                     <td class="fw-bold">NT$ {{ asset.target_price or '未設定' }}</td>
-                                    <td class="text-primary">NT$ {{ res.digital or 'N/A' }}</td>
-                                    <td><span class="badge bg-{{ res.status }}">{{ res.reason }}</span></td>
-                                    <td>
-                                        <button class="btn btn-sm btn-link p-0 me-2" data-bs-toggle="modal" data-bs-target="#editWish{{ asset.id }}">✏️ 設定目標</button>
-                                        
-                                        <div class="modal fade" id="editWish{{ asset.id }}" tabindex="-1">
-                                            <div class="modal-dialog">
-                                                <form class="modal-content text-dark" action="{{ url_for('edit_asset', asset_id=asset.id) }}" method="POST">
-                                                    <div class="modal-header">
-                                                        <h5 class="modal-title">追蹤設定 - {{ asset.game.name }}</h5>
-                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                                    </div>
-                                                    <div class="modal-body text-start">
-                                                        <div class="mb-3">
-                                                            <label class="form-label">目標入手價 (TWD)</label>
-                                                            <input type="number" name="target_price" class="form-control" value="{{ asset.target_price or 0 }}">
-                                                            <div class="form-text">當二手行情或 eShop 低於此價格時會通知。</div>
-                                                        </div>
-                                                        <div class="mb-3">
-                                                            <label class="form-label">變更狀態</label>
-                                                            <select name="status" class="form-select">
-                                                                <option value="wishlist" selected>留在願望清單</option>
-                                                                <option value="owned">已購買這款遊戲</option>
-                                                            </select>
-                                                        </div>
-                                                    </div>
-                                                    <div class="modal-footer">
-                                                        <button type="submit" class="btn btn-primary w-100">確認更新</button>
-                                                    </div>
-                                                </form>
-                                            </div>
-                                        </div>
+                                    <td class="text-primary">NT$ {{ analysis.eshop or 'N/A' }}</td>
+                                    <td><span class="badge bg-secondary">等待特價中</span></td>
+                                {% else %}
+                                    <td class="fw-bold text-primary">NT$ {{ asset.purchase_price or '0' }}</td>
+                                    <td>NT$ {{ analysis.eshop or 'N/A' }}</td>
+                                    <td><span class="badge bg-info">持有中</span></td>
+                                {% endif %}
+                                
+                                <td class="pe-4 text-end">
                                     </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-5 text-muted">
+                                    此清單目前空空如也...
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
+
     </div>
 </div>
 {% endblock %}

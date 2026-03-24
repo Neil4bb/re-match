@@ -17,62 +17,102 @@ class MainManager:
         self.ptt = PttAdapter()
 
     def search_games(self, query):
-        # 1. 抓取本地 EShopMapping
-        mappings = EShopMapping.query.filter(EShopMapping.game_name.like(f"%{query}%")).all()
-        
-        local_results = []
+        if not query:
+            return []
+
+        print(f"🔎 [Search] 開始搜尋關鍵字: {query}")
+        db_results = []
+        seen_nsuids = set()
         seen_igdb_ids = set()
-        # 🌟 用來擋掉標題太像的黑名單清單 (包含中文與英文)
-        local_titles = [] 
 
-        for m in mappings:
-            local_results.append({
-                'id': m.igdb_id,
-                'name': m.game_name,
-                'nsuid': m.nsuid,
-                'cover_url': m.icon_url,
-                'is_local': True
+        # --- 階段 1：本地 Games 表搜尋 (已入庫的遊戲) ---
+        # 這裡的遊戲資料最完整，包含已有的 ID 關聯
+        local_games = Game.query.filter(
+            or_(
+                Game.name.like(f"%{query}%"),
+                Game.chinese_name.like(f"%{query}%")
+            )
+        ).limit(10).all()
+
+        for g in local_games:
+            # 嘗試獲取該遊戲已綁定的 NSUID
+            platform_rec = GamePlatformID.query.filter_by(game_id=g.id, platform='Switch').first()
+            nsuid = platform_rec.external_id if platform_rec else None
+            
+            db_results.append({
+                'id': g.id,
+                'name': g.chinese_name or g.name,
+                'nsuid': nsuid,
+                'cover_url': g.cover_url,
+                'is_local': True,
+                'source': 'Database'
             })
-            if m.igdb_id:
-                seen_igdb_ids.add(m.igdb_id)
-            
-            # 🌟 關鍵優化：將本地中文名稱「去空格」後加入比對
-            local_titles.append(m.game_name.replace(" ", "").lower())
-            
-            # 🌟 關鍵優化：如果字典有英文名，也「去空格」後加入比對
-            # 這能有效擋掉像 "The Legend of Zelda" 這種 IGDB 英文結果
-            if hasattr(m, 'english_name') and m.english_name:
-                local_titles.append(m.english_name.replace(" ", "").lower())
+            seen_igdb_ids.add(g.id)
+            if nsuid: seen_nsuids.add(nsuid)
 
-        # 2. 抓取 IGDB 並執行去重
+        # --- 階段 2：本地 EShopMapping 字典搜尋 ---
+        # 即使 Games 表沒有，也要檢查 8900 筆字典檔是否有匹配
+        if len(db_results) < 10:
+            mappings = EShopMapping.query.filter(
+                or_(
+                    EShopMapping.game_name.like(f"%{query}%"),
+                    EShopMapping.english_name.like(f"%{query}%")
+                )
+            ).limit(10).all()
+
+            for m in mappings:
+                if m.nsuid not in seen_nsuids:
+                    # 🌟 虛擬 ID 策略：若無 igdb_id，則傳遞虛擬 ID 防止前端傳送 "None"
+                    virtual_id = m.igdb_id if m.igdb_id else f"nsuid_{m.nsuid}"
+                    
+                    db_results.append({
+                        'id': virtual_id,
+                        'name': m.game_name,
+                        'nsuid': m.nsuid,
+                        'cover_url': m.icon_url,
+                        'is_local': True,
+                        'source': 'Mapping'
+                    })
+                    seen_nsuids.add(m.nsuid)
+                    if m.igdb_id: seen_igdb_ids.add(m.igdb_id)
+
+        # --- 判斷門檻：若本地有結果 (>=1)，則直接回傳，節省 API 呼叫 ---
+        if len(db_results) >= 1:
+            print(f"✅ [Local Match] 找到 {len(db_results)} 筆本地結果，跳過遠端搜尋")
+            return db_results
+
+        # --- 階段 3：原版備援搜尋 (僅在本地無結果時觸發) ---
+        print(f"🌐 [IGDB] 本地無匹配，啟動原版 IGDB 備援搜尋...")
+        
+        # 🌟 以下為你原版的去重與搜尋邏輯
+        local_titles = [] # 此時 local_titles 為空，因為本地無結果
+        
+        # 呼叫你原有的 IGDB Service
         igdb_items = self.igdb.search_game(query)
         additional_results = []
         
         for item in igdb_items:
-            # 判斷 1：ID 是否完全相同
+            # 判斷 1：ID 是否完全相同 (雖然本地無結果，但保留結構相容性)
             is_duplicate = (item['id'] in seen_igdb_ids)
             
-            # 判斷 2：名稱模糊比對 (處理分身 ID)
+            # 判斷 2：名稱模糊比對
             if not is_duplicate:
-                # 🌟 將 IGDB 名字也「去空格」處理
                 clean_igdb_name = item['name'].replace(" ", "").lower()
-                
                 for lt in local_titles:
-                    # 雙向包含檢查：解決 "P5R" vs "Persona 5 Royal" 或中文 vs 英文包含問題
                     if clean_igdb_name in lt or lt in clean_igdb_name:
                         is_duplicate = True
-                        print(f"🚫 [去重成功] 偵測到名稱重複: {item['name']} (與本地 {lt} 衝突)")
                         break
 
-            # 判斷 3：硬編碼黑名單 (保留你原本的判斷)
+            # 判斷 3：硬編碼黑名單
             if item['id'] == 150080:
                 is_duplicate = True
 
             if not is_duplicate:
                 item['is_local'] = False
+                item['source'] = 'IGDB'
                 additional_results.append(item)
 
-        return local_results + additional_results
+        return additional_results
 
     def store_game_logic(self, item):
         """
@@ -267,19 +307,18 @@ class MainManager:
     # services/main_service.py
 
     def get_single_game_market_data(self, game_id, nsuid=None, name=None, force_refresh=False):
-        """
-        獲取單一遊戲的行情資料（解決第二、三點需求）
-        :param force_refresh: 是否跳過快取檢查，強制執行爬蟲
-        """
+        
         # 1. 如果不是強制刷新，先檢查資料庫（第二點：快取優先）
         if not force_refresh:
-            # 找出該遊戲最新的行情紀錄
-            latest_price = MarketPrice.query.filter_by(game_id=game_id)\
-                .order_by(MarketPrice.created_at.desc()).first()
+            # 🌟 統一使用 UTC 時間進行比較
+            cache_limit = datetime.utcnow() - timedelta(hours=36) 
+            has_any_price = MarketPrice.query.filter(
+                MarketPrice.game_id == game_id,
+                MarketPrice.created_at >= cache_limit
+            ).first()
             
-            # 如果有資料且在 24 小時內，直接回傳
-            if latest_price and (datetime.now() - latest_price.created_at) < timedelta(hours=24):
-                print(f"📦 [Cache Hit] 遊戲 {game_id} 尚在 24 小時快取期內，跳過爬蟲")
+            if has_any_price:
+                print(f"📦 [Cache Hit] 遊戲 {game_id} 命中快取 (UTC 判定)")
                 return self._get_cached_market_data(game_id)
 
         # 2. 執行即時查價邏輯（第三點：強制更新 或 快取失效）
@@ -369,10 +408,15 @@ class MainManager:
 
             # 3. --- eShop 區域 ---
             if nsuid and game_id:  # 🌟 加上 game_id 判斷
-                print(f"📡 [eShop] 使用 NSUID 查價: {nsuid}")
-                self.eshop.get_price_twd(game_id, nsuid)
-                rec = MarketPrice.query.filter_by(game_id=game_id, title=f"eShop_{nsuid}").first()
-                results['ns_digital'] = rec.price if rec else "--"
+                try:
+                    print(f"📡 [eShop] 使用 NSUID 查價: {nsuid}")
+                    self.eshop.get_price_twd(game_id, nsuid)
+                    rec = MarketPrice.query.filter_by(game_id=game_id, title=f"eShop_{nsuid}").first()
+                    results['ns_digital'] = rec.price if rec else "--"
+                    db.session.commit()
+                except Exception as e:
+                    print(f"📡 eShop 抓取失敗，但繼續執行後續: {e}")
+                    db.session.rollback()
             else:
                 print(f"⚠️ [Skip eShop] 無有效 GameID 或 NSUID，僅執行 API 查詢但不存檔")
             
@@ -679,7 +723,6 @@ class MainManager:
         """
         確保 games 表中一定有這款遊戲，若無則從 IGDB 補完。
         """
-        from models import Game
         
         # 1. 檢查本地資料庫是否已存在該 ID
         game = db.session.get(Game, game_id)

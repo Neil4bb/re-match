@@ -66,7 +66,9 @@
                                         {% endif %}
                                     </td>
                                     <td class="pe-4">
-                                        <a href="{{ url_for('add_to_assets', game_id=game.id) }}" class="btn btn-sm btn-outline-primary">追蹤</a>
+                                        <a href="{{ url_for('add_to_assets', game_id=game.id) }}" 
+                                        class="btn btn-sm btn-outline-primary btn-track" 
+                                        data-id="{{ game.id }}">追蹤</a>
                                     </td>
                                 </tr>
                             {% endfor %}
