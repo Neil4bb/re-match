@@ -523,7 +523,15 @@ class MainManager:
             print(f"⚠️ [Skip Save] 無有效 GameID，跳過 {source} 價格存檔")
             return
 
-        existing = MarketPrice.query.filter_by(game_id=game_id, source=source, title=title).first()
+        # 🌟 同樣加入日期判斷
+        today = datetime.utcnow().date()
+        existing = MarketPrice.query.filter(
+            MarketPrice.game_id == game_id,
+            MarketPrice.source == source,
+            MarketPrice.title == title,
+            db.func.date(MarketPrice.created_at) == today
+        ).first()
+        
         if not existing:
             p_tag = 'PlayStation 5' if source == 'PS_Store' else 'Switch'
             new_price = MarketPrice(

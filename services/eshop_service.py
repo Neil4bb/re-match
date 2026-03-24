@@ -4,6 +4,7 @@ import time
 import random
 from extensions import db
 from models import MarketPrice, Game
+from datetime import datetime
 
 class EShopService:
     def __init__(self):
@@ -109,21 +110,27 @@ class EShopService:
                     specific_title = f"eShop_{nsuid}"
                     
                     # 這裡必須確保是在 app.app_context 下執行，否則 db 操作會失敗
-                    mp = MarketPrice.query.filter_by(
-                        game_id=game_id, 
-                        source='eShop', 
-                        title=specific_title
+                    today = datetime.utcnow().date()
+                    mp = MarketPrice.query.filter(
+                        MarketPrice.game_id == game_id,
+                        MarketPrice.source == 'eShop',
+                        MarketPrice.title == specific_title,
+                        db.func.date(MarketPrice.created_at) == today # 檢查日期
                     ).first()
                     
                     if not mp:
+                        # 今天沒存過，建立新紀錄，這樣圖表才會多一個點
                         mp = MarketPrice(
                             game_id=game_id, 
                             source='eShop', 
-                            title=specific_title
+                            title=specific_title,
+                            price=price_twd
                         )
+                        db.session.add(mp)
+                    else:
+                        # 今天存過了，則更新今天的價格 (防止一天內點多次產生太多點)
+                        mp.price = price_twd
                         
-                    mp.price = price_twd
-                    db.session.add(mp)
                     db.session.commit()
                     print(f"✅ [Price Saved] {specific_title} 成功存入價格: NT$ {price_twd}")
                     return price_twd

@@ -128,33 +128,46 @@ def api_games():
         'has_next': pagination.has_next
     })
 
-# --- 修改原本的遊戲詳情路由 ---
+#
 @app.route('/game/<int:game_id>')
 def game_detail(game_id):
-    # 1. 只從本地資料庫抓取遊戲基本資訊
     game = Game.query.get_or_404(game_id)
+    # 這裡確保使用的是你從爬蟲或資料庫抓取的歷史紀錄
+    prices = MarketPrice.query.filter_by(game_id=game_id).order_by(MarketPrice.created_at).all()
     
-    # 2. 直接呼叫我們之前寫好的私有方法（只格式化現有資料，不爬蟲）
-    # 🌟 關鍵：直接用 manager._get_cached_market_data 繞過 Live Fetch 判定
-    market_data = manager._get_cached_market_data(game_id)
-    
-    # 3. 提取圖表需要的歷史資料
-    history = market_data.get('history', [])
-    
-    # 依照日期排序（由舊到新）
-    history_sorted = sorted(history, key=lambda x: x['date'])
-    
-    labels = [h['date'] for h in history_sorted]
-    prices = [h['price'] for h in history_sorted]
+    def process_history(price_list, target_platform):
+        digital_map = {}
+        ptt_map = {}
+        
+        digital_src = 'eShop' if target_platform == 'ns' else 'PS_Store'
+        ptt_keyword = '[NS' if target_platform == 'ns' else '[PS'
 
-    # 4. 渲染頁面（這時頁面會秒開，即使沒價格也只會顯示 "暫無行情"）
-    return render_template(
-        'game_detail.html', 
-        game=game, 
-        market_data=market_data, 
-        labels=labels,           
-        prices=prices            
-    )
+        for p in price_list:
+            # 🌟 強制轉為字串日期 '2026-03-24'
+            date_str = p.created_at.strftime('%Y-%m-%d')
+            
+            if p.source == digital_src:
+                digital_map[date_str] = p.price
+            elif p.source == 'PTT' and ptt_keyword in (p.title or ''):
+                ptt_map[date_str] = p.price
+        
+        # 取得排序後的日期聯集
+        all_dates = sorted(list(set(digital_map.keys()) | set(ptt_map.keys())))
+        
+        # 🌟 關鍵：確保 data 陣列長度與 labels 完全一致
+        return {
+            'labels': all_dates,
+            'digital_values': [digital_map.get(d, None) for d in all_dates],
+            'ptt_values': [ptt_map.get(d, None) for d in all_dates]
+        }
+
+    ns_chart = process_history(prices, 'ns')
+    ps_chart = process_history(prices, 'ps')
+
+    return render_template('game_detail.html', 
+                           game=game, 
+                           ns_chart=ns_chart, 
+                           ps_chart=ps_chart)
 
 # --- 新增：手動更新 API (對應第三點) ---
 @app.route('/api/game/<int:game_id>/refresh', methods=['POST'])

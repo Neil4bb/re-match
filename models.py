@@ -101,7 +101,7 @@ class EShopMapping(db.Model):
     
     igdb_id = db.Column(db.Integer, db.ForeignKey('games.id'), nullable=True)
     
-    game = db.relationship('Game', backref='eshop_mapping', uselist=False)
+    game = db.relationship('Game', backref=db.backref('eshop_mappings', lazy='dynamic'))
 
     @property
     def platform_ids(self):
