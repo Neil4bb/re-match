@@ -1,7 +1,7 @@
 import time
 import random
 from app import app, db
-from models import Game, UserAsset
+from models import Game, UserAsset, GamePlatformID
 from services.main_service import MainManager
 from sqlalchemy.exc import IntegrityError, PendingRollbackError
 
@@ -32,49 +32,13 @@ def run_integrated_sync():
                 manager.get_single_game_market_data(
                     game_id=game.id, 
                     nsuid=current_nsuid, 
-                    name=game.chinese_name or game.name
+                    name=game.chinese_name or game.name,
+                    force_refresh=True
                 )
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
                 print(f"💥 處理 {game.name} 時發生錯誤: {e}")
-
-            smart_sleep(index)
-
-        # --- 第二階段：處理 Mapping 表 ---
-        print("\n--- 階段 2：處理 Mapping 表資料 ---")
-        for index, m in enumerate(pending_mappings, 1):
-            try:
-                print(f"[{index}/{len(pending_mappings)}] 📡 處理新遊戲: {m.game_name}")
-                
-                # 🌟 步驟 A: 認親
-                game = manager.find_and_store_single_game(m.game_name, m.nsuid)
-                
-                if game and game.id:
-                    # 🌟 步驟 B: 有 ID 的完整模式
-                    manager.get_single_game_market_data(
-                        game_id=game.id, 
-                        nsuid=m.nsuid, 
-                        name=m.game_name
-                    )
-                    print(f"   ✅ 完成認親與查價: IGDB_ID={game.id}")
-                else:
-                    # 🌟 步驟 C: 無 ID 的基礎模式
-                    print(f"   ⚠️ IGDB 查無結果，執行基礎查價模式...")
-                    manager.get_single_game_market_data(
-                        game_id=None, 
-                        nsuid=m.nsuid, 
-                        name=m.game_name
-                    )
-
-                db.session.commit() # 🌟 每筆存檔
-                
-            except (IntegrityError, PendingRollbackError) as db_err:
-                db.session.rollback() # 🌟 針對資料庫衝突的專門處理
-                print(f"💥 資料庫衝突 (跳過): {db_err}")
-            except Exception as e:
-                db.session.rollback() # 🌟 萬用保險
-                print(f"💥 嚴重錯誤 (跳過): {e}")
 
             smart_sleep(index)
 
