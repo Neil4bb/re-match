@@ -22,27 +22,30 @@ class Game(db.Model):
     user_assets = db.relationship('UserAsset', backref='game', lazy=True)
 
     def get_market_analysis(self, platform_mode='ns'):
-        # 1. 根據模式決定數位價來源
-        target_source = 'eShop' if platform_mode == 'ns' else 'PS_Store'
-        
-        # 2. 取得該模式對應的最新數位價
+        """
+        提供給首頁與搜尋結果的通用市場分析邏輯。
+        platform_mode: 'ns' (Switch) 或 'ps' (PlayStation)
+        """
+        # 1. 根據模式決定數位價與 PTT 關鍵字
+        if platform_mode == 'ns':
+            target_source = 'eShop'
+            ptt_keyword = '[NS'
+        else:
+            target_source = 'PS_Store'
+            ptt_keyword = '[PS'
+
+        # 2. 取得該模式對應的最新數位價 (更名為 digital)
         digital = next((p for p in reversed(self.prices) if p.source == target_source), None)
         
-        # 3. 🌟 關鍵修正：改用「標題關鍵字」來抓取二手價
-        if platform_mode == 'ns':
-            # 找 PTT 來源且標題包含 [NS ]
-            retail = next((p for p in reversed(self.prices) 
-                        if p.source == 'PTT' and '[NS' in (p.title or '')), None)
-        else:
-            # 找 PTT 來源且標題包含 [PS4 ] 或 [PS5 ]
-            retail = next((p for p in reversed(self.prices) 
-                        if p.source == 'PTT' and ('[PS4' in (p.title or '') or '[PS5' in (p.title or ''))), None)
+        # 3. 取得該模式對應的最新 PTT 二手價 (精確匹配平台標籤)
+        retail = next((p for p in reversed(self.prices) 
+                    if p.source == 'PTT' and ptt_keyword in (p.title or '')), None)
 
-        # 4. 轉換為整數進行運算
+        # 4. 轉換為數值
         d_price = int(digital.price) if digital else None
         r_price = int(retail.price) if retail else None
 
-        # 5. 價差邏輯
+        # 5. 計算分析建議
         suggestion = "資料不足"
         diff = 0
         is_digital_cheaper = False
@@ -52,8 +55,9 @@ class Game(db.Model):
             suggestion = "推薦買數位版" if diff > 0 else "推薦買實體版"
             is_digital_cheaper = diff > 0
 
+        # 🌟 回傳字典中的 Key 已從 eshop 改為 digital
         return {
-            'eshop': d_price or "N/A",
+            'digital': d_price or "N/A",
             'retail': r_price or "N/A",
             'suggestion': suggestion,
             'diff': abs(diff),
@@ -154,29 +158,49 @@ class UserAsset(db.Model):
     target_price = db.Column(db.Integer) 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def get_analysis(self):
-        """強化版資產分析：自動判斷所屬平台的數位商店"""
-        # 取得最新 PTT 價格
-        ptt_price = next((p.price for p in reversed(self.game.prices) if p.source == 'PTT'), None)
+    #
+    def status_analysis(self):
+        """精準平台資產分析：根據資產所屬平台（NS/PS）進行對應比價"""
         
-        # 根據平台動態抓數位價格
-        target_src = 'eShop' if self.platform == 'Switch' else 'PS_Store'
-        if self.platform == 'Xbox': target_src = 'Xbox_Store'
+        # 1. 初始化平台判定參數
+        if self.platform == 'Switch':
+            target_src = 'eShop'
+            ptt_keyword = '[NS'
+        else:
+            target_src = 'PS_Store'
+            ptt_keyword = '[PS' # 涵蓋 [PS4] 與 [PS5]
+
+        # 2. 取得該平台對應的最新數位價
+        digital_price = next(
+            (p.price for p in reversed(self.game.prices) if p.source == target_src), 
+            None
+        )
         
-        digital_price = next((p.price for p in reversed(self.game.prices) if p.source == target_src), None)
+        # 3. 取得該平台對應的最新 PTT 二手價
+        # 關鍵：必須同時滿足 source='PTT' 且 title 包含正確的平台標籤
+        ptt_price = next(
+            (p.price for p in reversed(self.game.prices) 
+            if p.source == 'PTT' and ptt_keyword in (p.title or '')), 
+            None
+        )
         
         status = "success"
         reason = "狀態良好"
         
+        # 4. 判斷預警邏輯
         if self.status == 'owned':
+            # 已持有：關注跌價風險
             loss_threshold = (self.purchase_price or 0) * 0.7
+            
             if digital_price and ptt_price and digital_price < ptt_price:
                 status = "danger"
-                reason = "流動性死結：數位比二手便宜"
+                reason = f"流動性死結：數位({int(digital_price)})比二手便宜"
             elif ptt_price and ptt_price < loss_threshold:
                 status = "warning"
-                reason = "殘值跌破 70%"
+                reason = f"殘值跌破 70%：目前約 NT$ {int(ptt_price)}"
+                
         elif self.status == 'wishlist':
+            # 希望清單：關注達標提醒
             if ptt_price and self.target_price and ptt_price <= self.target_price:
                 status = "info"
                 reason = f"實體版已達標！目前 NT$ {int(ptt_price)}"
@@ -186,4 +210,9 @@ class UserAsset(db.Model):
             else:
                 reason = "等待特價中"
             
-        return {"status": status, "reason": reason, "ptt": ptt_price, "digital": digital_price}
+        return {
+            "status": status, 
+            "reason": reason, 
+            "ptt": ptt_price, 
+            "digital": digital_price
+        }
