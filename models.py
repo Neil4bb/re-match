@@ -71,6 +71,20 @@ class Game(db.Model):
             if p.platform and 'Switch' in p.platform and p.external_id:
                 return p.external_id
         return None
+    
+    @property
+    def has_ns_platform(self):
+        """
+        邏輯：去 GamePlatformID 表尋找有沒有包含 'Switch' 字樣的紀錄
+        """
+        return any('Switch' in (p.platform or '') for p in self.platform_ids)
+    
+    @property
+    def has_ps_platform(self):
+        """
+        邏輯：去 GamePlatformID 表尋找有沒有包含 'PS' 或 'PlayStation' 字樣的紀錄
+        """
+        return any('PS' in (p.platform or '') or 'PlayStation' in (p.platform or '') for p in self.platform_ids)
 
 # ----------------------------------------------------------------
 # 2. 平台外部 ID 表 (例如：Switch 用 NSUID, PS 用 ProductID)
@@ -160,68 +174,67 @@ class UserAsset(db.Model):
 
     #
     def status_analysis(self):
-        """精準平台資產分析：統一變數名稱並整合 Debug 資訊"""
+        """精準平台資產分析：優化平台判定邏輯"""
             
-        # 1. 強化平台判定 (不分大小寫，包含關鍵字即判定)
-        # 假設資料庫存 'Switch', 'NS', 'Nintendo' 都跑 NS 邏輯
-        current_p = (self.platform or "").lower()
+        # 1. 取得平台字串並轉小寫，處理 None 情況
+        p_field = (self.platform or "").lower()
         
-        if 'switch' in current_p or 'ns' in current_p:
-            target_src, ptt_keyword = 'eShop', '[NS'
+        # 🌟 強化判定：包含 'nintendo', 'switch', 'ns' 都算 Nintendo 平台
+        if any(k in p_field for k in ['nintendo', 'switch', 'ns']):
+            target_src = 'eShop'
+            ptt_keyword = '[NS'
             platform_label = "Nintendo"
-        else:
-            # 只要不是 Switch 就跑 PS 邏輯
-            target_src, ptt_keyword = 'PS_Store', '[PS'
+        # 🌟 包含 'ps', 'playstation', 'sony' 都算 PlayStation 平台
+        elif any(k in p_field for k in ['ps', 'playstation', 'sony']):
+            target_src = 'PS_Store'
+            ptt_keyword = '[PS'
             platform_label = "PlayStation"
+        else:
+            # 預設回退機制（根據遊戲本身關聯的平台 ID 判定）
+            game_nsuid = self.game.nsuid
+            target_src = 'eShop' if game_nsuid else 'PS_Store'
+            ptt_keyword = '[NS' if game_nsuid else '[PS'
+            platform_label = "Auto-Detect"
 
-        # 2. 抓取最新價格
+        # 2. 抓取最新價格 (使用 reversed 確保拿到最新一筆)
         digital_p = next((p.price for p in reversed(self.game.prices) if p.source == target_src), None)
         ptt_p = next((p.price for p in reversed(self.game.prices) 
                     if p.source == 'PTT' and ptt_keyword in (p.title or '')), None)
 
-        # 3. 計算當前市值
+        # 3. 計算當前市值 (取數位與二手中的最低者)
         market_prices = [p for p in [digital_p, ptt_p] if p is not None]
         current_val = min(market_prices) if market_prices else None
         
-        # 🌟 [Debug Log] 增加平台標籤檢查
+        # [Debug Log] 方便在終端機查看判定結果
         print(f"--- 🔍 損益分析 Debug: {self.game.chinese_name or self.game.name} ---")
-        print(f"   > 資產平台欄位內容: '{self.platform}'")
-        print(f"   > 最終判定路徑: {platform_label} (搜尋 {target_src})")
-        print(f"   > 購入價: {self.purchase_price} | 數位價: {digital_p} | PTT價: {ptt_p}")
-        print(f"   > 判定市值 (current_val): {current_val}")
+        print(f"   > 原始平台欄位: '{self.platform}' -> 判定為: {platform_label}")
+        print(f"   > 數位價 ({target_src}): {digital_p} | PTT 價 ({ptt_keyword}): {ptt_p}")
 
         status = "success"
         reason = "狀態良好"
         
-        # --- 4. 判定邏輯：已持有 (owned) ---
+        # 4. 判定邏輯：已持有 (owned)
         if self.status == 'owned':
-            loss_limit = (self.purchase_price or 0) * 0.7  # 70% 門檻
+            # 避免購入價為 None 導致報錯
+            base_price = self.purchase_price or 0
+            loss_limit = base_price * 0.7  # 價值跌破 70% 視為縮水
             
-            # A. 流動性陷阱 (數位特價比二手實體還便宜)
-            if digital_p and ptt_p and digital_p < ptt_p:
+            # A. 流動性陷阱 (數位版特價太兇，實體二手變難賣)
+            if digital_p and ptt_p and digital_p < (ptt_p * 0.8):
                 status = "danger"
-                reason = f"流動性死結：數位版僅 NT$ {int(digital_p)}"
+                reason = f"數位版特價中：僅 NT$ {int(digital_p)}"
             
-            # B. 價值大幅縮水 (只要市場最低價跌破 70% 門檻)
+            # B. 價值大幅縮水
             elif current_val and current_val < loss_limit:
                 status = "warning"
                 reason = f"資產縮水：目前市值約 NT$ {int(current_val)}"
                 
-        # --- 5. 判定邏輯：希望清單 (wishlist) ---
+        # 5. 判定邏輯：希望清單 (wishlist)
         elif self.status == 'wishlist':
-            is_ptt_deal = ptt_p and self.target_price and ptt_p <= self.target_price
-            is_digital_deal = digital_p and self.target_price and digital_p <= self.target_price
-
-            if is_ptt_deal and is_digital_deal:
-                cheaper_type = "實體版" if ptt_p <= digital_p else "數位版"
+            target = self.target_price or 0
+            if current_val and target > 0 and current_val <= target:
                 status = "info"
-                reason = f"雙重達標！{cheaper_type}最划算 (NT$ {int(min(ptt_p, digital_p))})"
-            elif is_ptt_deal:
-                status = "info"
-                reason = f"實體版已達標！目前 NT$ {int(ptt_p)}"
-            elif is_digital_deal:
-                status = "info"
-                reason = f"數位版已達標！目前 NT$ {int(digital_p)}"
+                reason = f"價格達標！目前最低 NT$ {int(current_val)}"
             else:
                 reason = "等待特價中"
                 
@@ -229,5 +242,6 @@ class UserAsset(db.Model):
             "status": status, 
             "reason": reason, 
             "ptt": ptt_p, 
-            "digital": digital_p
+            "digital": digital_p,
+            "current_val": current_val
         }

@@ -295,28 +295,23 @@ def my_assets():
     platform_mode = request.args.get('platform', 'ns') # 'ns' 或 'ps'
     view_mode = request.args.get('view', 'wishlist')
     
-    # 1. 抓取該使用者的資產，並預先載入遊戲與平台 ID (優化效ne)
+    # 1. 抓取該使用者的所有資產 (預先載入 game 加速)
     user_assets = UserAsset.query.filter_by(user_id=current_user.id)\
-        .join(Game).options(joinedload(UserAsset.game).joinedload(Game.platform_ids))\
+        .options(joinedload(UserAsset.game))\
         .all()
     
-    # 2. 定義平台判定邏輯
-    def match_platform(game):
-        p_ids = [p.platform.lower() for p in game.platform_ids]
-        if platform_mode == 'ns':
-            return any('switch' in p or 'nintendo' in p for p in p_ids)
-        else:
-            return any('ps' in p or 'playstation' in p for p in p_ids)
-
-    # 3. 執行「狀態」與「平台」雙重過濾
+    # 2. 🌟 關鍵改動：直接對比 UserAsset 裡存的平台標籤
+    # 這樣 Switch 存的就只會出現在 ns 分頁，PS 存的只會出現在 ps 分頁
+    db_platform = 'Switch' if platform_mode == 'ns' else 'PlayStation'
+    
     filtered_assets = [
         a for a in user_assets 
-        if a.status == view_mode and match_platform(a.game)
+        if a.status == view_mode and a.platform == db_platform
     ]
     
-    # 為了維持模板中的數量統計準確，我們分開計算
-    wishlist_count = len([a for a in user_assets if a.status == 'wishlist' and match_platform(a.game)])
-    owned_count = len([a for a in user_assets if a.status == 'owned' and match_platform(a.game)])
+    # 3. 統計數量也要同步修改，確保導覽列數字正確
+    wishlist_count = len([a for a in user_assets if a.status == 'wishlist' and a.platform == db_platform])
+    owned_count = len([a for a in user_assets if a.status == 'owned' and a.platform == db_platform])
     
     return render_template('assets.html', 
                            display_list=filtered_assets, 
@@ -329,14 +324,23 @@ def my_assets():
 @app.route('/add_to_assets/<int:game_id>', methods=['GET', 'POST'])
 @login_required
 def add_to_assets(game_id):
-    exists = UserAsset.query.filter_by(user_id=current_user.id, game_id=game_id).first()
+    # 1. 取得前端傳來的平台代碼 (ns 或 ps)，預設為 ns
+    platform_code = request.args.get('platform', 'ns').lower()
+
+    db_platform = 'Switch' if platform_code == 'ns' else 'PlayStation'
+
+    exists = UserAsset.query.filter_by(
+        user_id=current_user.id,
+        game_id=game_id,
+        platform=db_platform
+    ).first()
     
     if not exists:
         new_asset = UserAsset(
             user_id=current_user.id,
             game_id=game_id,
             status='wishlist',
-            platform='Switch' # 預設平台，可根據需求調整
+            platform=db_platform
         )
         db.session.add(new_asset)
         db.session.commit()
@@ -345,13 +349,12 @@ def add_to_assets(game_id):
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.method == 'POST':
         return jsonify({
             'status': 'success',
-            'message': '已加入願望清單',
+            'message': f'已加入 {db_platform} 願望清單',
             'game_id': game_id
         }), 200
     
-    # 傳統點擊連結則維持跳轉
-    flash('成功加入願望清單！')
-    return redirect(url_for('index'))
+    flash(f'成功加入 {db_platform} 願望清單！')
+    return redirect(url_for('index', platform=platform_code))
 
 # --- 請將以下路由加入到 app.py 中 (建議放在 add_to_assets 之後) ---
 
@@ -423,10 +426,10 @@ def toggle_asset(asset_id):
     db.session.commit()
     
     # 保持在目前的平台分頁 (ns 或 ps)
-    platform = 'ns' if asset.platform == 'Switch' else 'ps'
+    platform_url_code = 'ns' if asset.platform == 'Switch' else 'ps'
     
     # 導向切換後的視圖
-    return redirect(url_for('my_assets', platform=platform, view=origin_view))
+    return redirect(url_for('my_assets', platform=platform_url_code, view=origin_view))
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))

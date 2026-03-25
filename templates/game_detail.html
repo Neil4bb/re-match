@@ -6,6 +6,16 @@
             <img src="{{ game.cover_url }}" class="img-fluid rounded shadow" alt="{{ game.name }}">
             <h2 class="mt-3">{{ game.chinese_name }}</h2>
             <p class="text-muted">{{ game.name }}</p>
+            <div class="d-flex gap-2 my-3">
+                {% if game.has_ns_platform %}
+                    <a href="{{ url_for('add_to_assets', game_id=game.id, platform='ns') }}"
+                        class="btn btn-outline-danger btn-sm btn-track">追蹤Switch版</a>
+                {% endif %}
+                {% if game.has_ps_platform %}
+                    <a href="{{ url_for('add_to_assets', game_id=game.id, platform='ps') }}" 
+                        class="btn btn-outline-primary btn-sm btn-track">追蹤PlayStation版</a>
+                {% endif %}
+            </div>
             <hr>
             <h5>遊戲簡介</h5>
             <p>

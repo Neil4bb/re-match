@@ -84,7 +84,7 @@ function renderGames(games) {
                     ${game.diff > 0 ? `<div class="small text-muted mt-1">價差: NT$ ${game.diff}</div>` : ''}
                 </td>
                 <td class="pe-4">
-                    <a href="/add_to_assets/${game.id}" 
+                    <a href="/add_to_assets/${game.id}?platform=${platform}" 
                     class="btn btn-sm btn-outline-primary btn-track" 
                     data-id="${game.id}">追蹤</a>
                 </td>
@@ -100,8 +100,9 @@ document.addEventListener('click', function(e) {
         e.preventDefault(); // 🛑 阻止 <a> 標籤跳轉
         
         const btn = e.target;
-        const gameId = btn.getAttribute('data-id');
-        const url = `/add_to_assets/${gameId}`;
+        
+        // 🌟 關鍵修改：直接抓取 href 屬性，這包含了 Flask 渲染的 ?platform=ps
+        const url = btn.getAttribute('href');
 
         // 防止重複發送
         if (btn.disabled) return;
@@ -111,15 +112,16 @@ document.addEventListener('click', function(e) {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-        .then(res => {
-            if (res.ok) {
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
                 // ✨ 更新按鈕樣式：變色、換字
                 btn.classList.remove('btn-outline-primary');
                 btn.classList.add('btn-success');
                 btn.innerHTML = '✓ 已追蹤';
                 btn.disabled = true; // 追蹤後禁用按鈕
             } else {
-                alert('追蹤失敗，請稍後再試');
+                alert(data.message || '追蹤失敗');
                 btn.disabled = false;
             }
         })
