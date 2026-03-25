@@ -1,19 +1,8 @@
 services:
-  # 網頁服務 (使用者瀏覽用)
   web:
-    # 這裡從 build 改為 image 
-    image: neil4bb/re-match
+    build: .             # 🌟 告訴 Compose：請讀取本地的 Dockerfile
+    # image: neil4bb/re-match:latest  # 🌟 把這一行註解掉或刪除
     ports:
       - "5000:5000"
     env_file: .env
     restart: always
-
-  # 背景填充服務 (每 12 分鐘自動跑)
-  eshop_worker:
-    # 同樣改為 image，確保兩者共用同一個映像檔 
-    image: neil4bb/re-match
-    # 指定執行你的背景腳本 
-    command: python scripts/fill_eshop_cache.py
-    # 確保容器崩潰或 EC2 重開後會自動啟動 
-    restart: always
-    env_file: .env

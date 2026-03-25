@@ -116,7 +116,7 @@ def api_games():
             'chinese_name': game.chinese_name or game.name,
             'name': game.name,
             'cover_url': game.cover_url,
-            'digital_price': analysis['eshop'] if platform_mode == 'ns' else analysis['eshop'], # 這裡 eshop 欄位其實就是數位價
+            'digital_price': analysis['digital'],
             'retail_price': analysis['retail'],
             'suggestion': analysis['suggestion'],
             'is_digital_cheaper': analysis['is_digital_cheaper'],

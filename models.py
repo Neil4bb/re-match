@@ -160,59 +160,74 @@ class UserAsset(db.Model):
 
     #
     def status_analysis(self):
-        """精準平台資產分析：根據資產所屬平台（NS/PS）進行對應比價"""
+        """精準平台資產分析：統一變數名稱並整合 Debug 資訊"""
+            
+        # 1. 強化平台判定 (不分大小寫，包含關鍵字即判定)
+        # 假設資料庫存 'Switch', 'NS', 'Nintendo' 都跑 NS 邏輯
+        current_p = (self.platform or "").lower()
         
-        # 1. 初始化平台判定參數
-        if self.platform == 'Switch':
-            target_src = 'eShop'
-            ptt_keyword = '[NS'
+        if 'switch' in current_p or 'ns' in current_p:
+            target_src, ptt_keyword = 'eShop', '[NS'
+            platform_label = "Nintendo"
         else:
-            target_src = 'PS_Store'
-            ptt_keyword = '[PS' # 涵蓋 [PS4] 與 [PS5]
+            # 只要不是 Switch 就跑 PS 邏輯
+            target_src, ptt_keyword = 'PS_Store', '[PS'
+            platform_label = "PlayStation"
 
-        # 2. 取得該平台對應的最新數位價
-        digital_price = next(
-            (p.price for p in reversed(self.game.prices) if p.source == target_src), 
-            None
-        )
+        # 2. 抓取最新價格
+        digital_p = next((p.price for p in reversed(self.game.prices) if p.source == target_src), None)
+        ptt_p = next((p.price for p in reversed(self.game.prices) 
+                    if p.source == 'PTT' and ptt_keyword in (p.title or '')), None)
+
+        # 3. 計算當前市值
+        market_prices = [p for p in [digital_p, ptt_p] if p is not None]
+        current_val = min(market_prices) if market_prices else None
         
-        # 3. 取得該平台對應的最新 PTT 二手價
-        # 關鍵：必須同時滿足 source='PTT' 且 title 包含正確的平台標籤
-        ptt_price = next(
-            (p.price for p in reversed(self.game.prices) 
-            if p.source == 'PTT' and ptt_keyword in (p.title or '')), 
-            None
-        )
-        
+        # 🌟 [Debug Log] 增加平台標籤檢查
+        print(f"--- 🔍 損益分析 Debug: {self.game.chinese_name or self.game.name} ---")
+        print(f"   > 資產平台欄位內容: '{self.platform}'")
+        print(f"   > 最終判定路徑: {platform_label} (搜尋 {target_src})")
+        print(f"   > 購入價: {self.purchase_price} | 數位價: {digital_p} | PTT價: {ptt_p}")
+        print(f"   > 判定市值 (current_val): {current_val}")
+
         status = "success"
         reason = "狀態良好"
         
-        # 4. 判斷預警邏輯
+        # --- 4. 判定邏輯：已持有 (owned) ---
         if self.status == 'owned':
-            # 已持有：關注跌價風險
-            loss_threshold = (self.purchase_price or 0) * 0.7
+            loss_limit = (self.purchase_price or 0) * 0.7  # 70% 門檻
             
-            if digital_price and ptt_price and digital_price < ptt_price:
+            # A. 流動性陷阱 (數位特價比二手實體還便宜)
+            if digital_p and ptt_p and digital_p < ptt_p:
                 status = "danger"
-                reason = f"流動性死結：數位({int(digital_price)})比二手便宜"
-            elif ptt_price and ptt_price < loss_threshold:
+                reason = f"流動性死結：數位版僅 NT$ {int(digital_p)}"
+            
+            # B. 價值大幅縮水 (只要市場最低價跌破 70% 門檻)
+            elif current_val and current_val < loss_limit:
                 status = "warning"
-                reason = f"殘值跌破 70%：目前約 NT$ {int(ptt_price)}"
+                reason = f"資產縮水：目前市值約 NT$ {int(current_val)}"
                 
+        # --- 5. 判定邏輯：希望清單 (wishlist) ---
         elif self.status == 'wishlist':
-            # 希望清單：關注達標提醒
-            if ptt_price and self.target_price and ptt_price <= self.target_price:
+            is_ptt_deal = ptt_p and self.target_price and ptt_p <= self.target_price
+            is_digital_deal = digital_p and self.target_price and digital_p <= self.target_price
+
+            if is_ptt_deal and is_digital_deal:
+                cheaper_type = "實體版" if ptt_p <= digital_p else "數位版"
                 status = "info"
-                reason = f"實體版已達標！目前 NT$ {int(ptt_price)}"
-            elif digital_price and self.target_price and digital_price <= self.target_price:
+                reason = f"雙重達標！{cheaper_type}最划算 (NT$ {int(min(ptt_p, digital_p))})"
+            elif is_ptt_deal:
                 status = "info"
-                reason = f"數位版已達標！目前 NT$ {int(digital_price)}"
+                reason = f"實體版已達標！目前 NT$ {int(ptt_p)}"
+            elif is_digital_deal:
+                status = "info"
+                reason = f"數位版已達標！目前 NT$ {int(digital_p)}"
             else:
                 reason = "等待特價中"
-            
+                
         return {
             "status": status, 
             "reason": reason, 
-            "ptt": ptt_price, 
-            "digital": digital_price
+            "ptt": ptt_p, 
+            "digital": digital_p
         }
