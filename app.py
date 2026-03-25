@@ -129,10 +129,31 @@ def api_games():
     })
 
 #
-@app.route('/game/<int:game_id>')
+@app.route('/game/<game_id>')
 def game_detail(game_id):
-    game = Game.query.get_or_404(game_id)
-    # 這裡確保使用的是你從爬蟲或資料庫抓取的歷史紀錄
+    str_id = str(game_id).strip()
+    
+    # 🌟 增加對 'None' 或 'null' 的防禦
+    if not str_id or str_id.lower() in ['none', 'null']:
+        flash("無效的遊戲 ID", "danger")
+        return redirect(url_for('index'))
+    
+    if str_id.startswith('nsuid_'):
+        # ... 原有的認親邏輯 ...
+        real_nsuid = str_id.replace('nsuid_', '')
+        game = manager.find_and_store_single_game("新搜尋遊戲", real_nsuid)
+    else:
+        try:
+            # 🌟 確保是數字才轉換
+            game = db.session.get(Game, int(str_id))
+        except ValueError:
+            flash("遊戲 ID 格式錯誤", "danger")
+            return redirect(url_for('index'))
+            
+    if not game:
+        flash("找不到該遊戲", "danger")
+        return redirect(url_for('index'))
+        
     prices = MarketPrice.query.filter_by(game_id=game_id).order_by(MarketPrice.created_at).all()
     
     def process_history(price_list, target_platform):

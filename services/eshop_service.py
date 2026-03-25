@@ -4,7 +4,7 @@ import time
 import random
 from extensions import db
 from models import MarketPrice, Game
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class EShopService:
     def __init__(self):
@@ -110,16 +110,17 @@ class EShopService:
                     specific_title = f"eShop_{nsuid}"
                     
                     # 這裡必須確保是在 app.app_context 下執行，否則 db 操作會失敗
-                    today = datetime.utcnow().date()
+                    two_hours_ago = datetime.now() - timedelta(hours=2) # 🌟 計算 2 小時前的時間點
+                    
                     mp = MarketPrice.query.filter(
                         MarketPrice.game_id == game_id,
                         MarketPrice.source == 'eShop',
                         MarketPrice.title == specific_title,
-                        db.func.date(MarketPrice.created_at) == today # 檢查日期
-                    ).first()
+                        MarketPrice.created_at >= two_hours_ago # 🌟 檢查 2 小時內是否有紀錄
+                    ).order_by(MarketPrice.created_at.desc()).first()
                     
                     if not mp:
-                        # 今天沒存過，建立新紀錄，這樣圖表才會多一個點
+                        # 2 小時內沒存過，建立新紀錄
                         mp = MarketPrice(
                             game_id=game_id, 
                             source='eShop', 
@@ -128,8 +129,9 @@ class EShopService:
                         )
                         db.session.add(mp)
                     else:
-                        # 今天存過了，則更新今天的價格 (防止一天內點多次產生太多點)
+                        # 🌟 2 小時內已存過：更新該筆紀錄
                         mp.price = price_twd
+                        mp.created_at = datetime.now() # 選配：更新時間戳記
                         
                     db.session.commit()
                     print(f"✅ [Price Saved] {specific_title} 成功存入價格: NT$ {price_twd}")

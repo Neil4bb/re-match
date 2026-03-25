@@ -205,10 +205,6 @@ class UserAsset(db.Model):
         market_prices = [p for p in [digital_p, ptt_p] if p is not None]
         current_val = min(market_prices) if market_prices else None
         
-        # [Debug Log] 方便在終端機查看判定結果
-        print(f"--- 🔍 損益分析 Debug: {self.game.chinese_name or self.game.name} ---")
-        print(f"   > 原始平台欄位: '{self.platform}' -> 判定為: {platform_label}")
-        print(f"   > 數位價 ({target_src}): {digital_p} | PTT 價 ({ptt_keyword}): {ptt_p}")
 
         status = "success"
         reason = "狀態良好"

@@ -523,16 +523,18 @@ class MainManager:
             print(f"⚠️ [Skip Save] 無有效 GameID，跳過 {source} 價格存檔")
             return
 
-        # 🌟 同樣加入日期判斷
-        today = datetime.utcnow().date()
+        # 🌟 定義 2 小時的時間門檻
+        two_hours_ago = datetime.now() - timedelta(hours=2)
+
         existing = MarketPrice.query.filter(
             MarketPrice.game_id == game_id,
             MarketPrice.source == source,
             MarketPrice.title == title,
-            db.func.date(MarketPrice.created_at) == today
-        ).first()
+            MarketPrice.created_at >= two_hours_ago # 🌟 檢查 2 小時內是否有紀錄
+        ).order_by(MarketPrice.created_at.desc()).first()
         
         if not existing:
+            # 2 小時內沒存過，建立新紀錄
             p_tag = 'PlayStation 5' if source == 'PS_Store' else 'Switch'
             new_price = MarketPrice(
                 game_id=game_id,
@@ -543,8 +545,13 @@ class MainManager:
                 source_url=url
             )
             db.session.add(new_price)
-            db.session.commit() 
             print(f"✅ [Price Saved] {source} 價格已入庫: NT$ {price}")
+        else:
+            existing.price = price
+            existing.created_at = datetime.now() # 更新時間戳記
+
+        db.session.commit() 
+            
         
     # 在 main_service.py 的 MainManager 類別中新增
     def find_and_store_single_game(self, name, nsuid):
