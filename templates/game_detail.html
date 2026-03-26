@@ -1,12 +1,48 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+    /* 預設高度（手機、平板） */
+    .chart-card {
+        height: 300px !important; 
+        transition: height 0.1s ease; /* 增加一點縮放動畫 */
+    }
+
+    /* 當螢幕寬度大於等於 992px (lg) 時的高度 */
+    @media (min-width: 992px) {
+        .chart-card {
+            height: 400px !important;
+        }
+    }
+
+    /* 🌟 針對 md (768px) 以下的螢幕調整容器寬度 */
+    @media (max-width: 767.98px) {
+        .container {
+            max-width: 90% !important; /* 強制佔用 90% 寬度 */
+            padding-left: 0;
+            padding-right: 0;
+        }
+        
+        /* 讓 row 的間距稍微縮小，避免在 90% 寬度下內容太擠 */
+        .row.g-3 {
+            --bs-gutter-x: 0.5rem; 
+        }
+    }
+
+    /* 確保圖片在窄螢幕下能精準填滿其 col */
+    .img-fluid {
+        width: 100%;
+        height: auto;
+    }
+    
+</style>
+
 <div class="container mt-4">
-    <div class="row">
-        <div class="col-md-4">
+    <div class="row g-3">
+        <div class="col-5 col-md-4">
             <img src="{{ game.cover_url }}" class="img-fluid rounded shadow" alt="{{ game.name }}">
-            <h2 class="mt-3">{{ game.chinese_name }}</h2>
-            <p class="text-muted">{{ game.name }}</p>
-            <div class="d-flex gap-2 my-3">
+            <h2 class="mt-3 h5">{{ game.chinese_name }}</h2>
+            <p class="text-muted small">{{ game.name }}</p>
+            <div class="d-flex flex-wrap gap-2 my-3">
                 {% if game.has_ns_platform %}
                     <a href="{{ url_for('add_to_assets', game_id=game.id, platform='ns') }}"
                         class="btn btn-outline-danger btn-sm btn-track">追蹤Switch版</a>
@@ -16,58 +52,90 @@
                         class="btn btn-outline-primary btn-sm btn-track">追蹤PlayStation版</a>
                 {% endif %}
             </div>
-            <hr>
-            <h5>遊戲簡介</h5>
-            <p>
-                {% set mapping = game.eshop_mappings.first() %}
-                
-                {% if mapping and mapping.intro and mapping.intro.strip() %}
-                    {# 🌟 使用 striptags 移除潛在 HTML，並用 replace 處理換行 #}
-                    {{ mapping.intro.strip() | replace('\r\n', '<br>') | replace('\n', '<br>') | safe }}
-                {% elif game.summary %}
-                    {{ game.summary }}
-                {% else %}
-                    暫無簡介
-                {% endif %}
-            </p>
+
+            <div class="d-none d-md-block">
+                <hr>
+                <h5>遊戲簡介</h5>
+                <p>
+                    {% set mapping = game.eshop_mappings.first() %}
+                    {% if mapping and mapping.intro and mapping.intro.strip() %}
+                        {{ mapping.intro.strip() | replace('\r\n', '<br>') | replace('\n', '<br>') | safe }}
+                    {% elif game.summary %}
+                        {{ game.summary }}
+                    {% else %}
+                        暫無簡介
+                    {% endif %}
+                </p>
+            </div>
         </div>
 
-        <div class="col-md-8">
-            <div class="row">
-                <div class="col-md-6 mb-4">
-                    <div class="card shadow-sm p-3" style="height: 400px;">
+        <div class="col-7 col-md-8">
+            <div class="row g-2">
+                <div class="col-12 col-lg-6 mb-2 mb-lg-4">
+                    <div class="card shadow-sm p-2 p-md-3 chart-card">
                         <canvas id="nsChart"></canvas>
                     </div>
                 </div>
-                <div class="col-md-6 mb-4">
-                    <div class="card shadow-sm p-3" style="height: 400px;">
+                <div class="col-12 col-lg-6 mb-2 mb-lg-4">
+                    <div class="card shadow-sm p-2 p-md-3 chart-card">
                         <canvas id="psChart"></canvas>
                     </div>
                 </div>
             </div>
 
-            <div class="d-flex align-items-center gap-3">
-                <h1 class="h2 mb-0">{{ game.chinese_name or game.name }}</h1>
-                <button id="refresh-btn" class="btn btn-sm btn-outline-secondary" onclick="refreshPrice({{ game.id }})">
+            <div class="d-flex align-items-center gap-2 gap-md-3 mt-2 mt-md-0">
+                <h1 class="h4 h2-md mb-0">價格查詢記錄</h1>
+                <button id="refresh-btn" class="btn btn-xs btn-sm-md btn-outline-secondary" onclick="refreshPrice({{ game.id }})">
                     <i class="bi bi-arrow-clockwise"></i> 即時更新行情
                 </button>
             </div>
+
+            <div class="d-md-none mt-3" style="margin-left: -71.4%;"> <hr>
+                <h5>遊戲簡介</h5>
+                <p>
+                    {% if mapping and mapping.intro and mapping.intro.strip() %}
+                        {{ mapping.intro.strip() | replace('\r\n', '<br>') | replace('\n', '<br>') | safe }}
+                    {% elif game.summary %}
+                        {{ game.summary }}
+                    {% else %}
+                        暫無簡介
+                    {% endif %}
+                </p>
+            </div>
             
-            <table class="table table-sm mt-4">
-                <thead>
-                    <tr><th>日期</th><th>來源</th><th>價格</th></tr>
-                </thead>
-                <tbody>
-                    {% for p in game.prices|reverse %}
-                    <tr>
-                        <td>{{ p.created_at.strftime('%Y-%m-%d') }}</td>
-                        <td><span class="badge bg-secondary">{{ p.source }}</span></td>
-                        <td>NT$ {{ p.price }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div class="table-responsive d-none d-md-block"> <table class="table table-sm mt-4">
+                    <thead>
+                        <tr><th>日期</th><th>來源</th><th>價格</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for p in game.prices|reverse %}
+                        <tr>
+                            <td>{{ p.created_at.strftime('%Y-%m-%d') }}</td>
+                            <td><span class="badge bg-secondary">{{ p.source }}</span></td>
+                            <td>NT$ {{ p.price }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
+    </div>
+    
+    <div class="d-md-none table-responsive mt-3">
+        <table class="table table-sm">
+            <thead>
+                <tr><th>日期</th><th>來源</th><th>價格</th></tr>
+            </thead>
+            <tbody>
+                {% for p in game.prices|reverse %}
+                <tr>
+                    <td>{{ p.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td><span class="badge bg-secondary">{{ p.source }}</span></td>
+                    <td>NT$ {{ p.price }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 

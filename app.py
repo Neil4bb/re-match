@@ -6,6 +6,7 @@ from models import db, Game, GamePlatformID, MarketPrice, User, UserAsset
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import joinedload
+from collections import defaultdict
 
 
 load_dotenv()
@@ -157,29 +158,49 @@ def game_detail(game_id):
     prices = MarketPrice.query.filter_by(game_id=game_id).order_by(MarketPrice.created_at).all()
     
     def process_history(price_list, target_platform):
-        digital_map = {}
-        ptt_map = {}
         
+        # 用字典將同日期的資料歸類
+        daily_groups = defaultdict(list)
         digital_src = 'eShop' if target_platform == 'ns' else 'PS_Store'
         ptt_keyword = '[NS' if target_platform == 'ns' else '[PS'
 
         for p in price_list:
             # 🌟 強制轉為字串日期 '2026-03-24'
-            date_str = p.created_at.strftime('%Y-%m-%d')
-            
+            date_key = p.created_at.strftime('%Y-%m-%d')
+
             if p.source == digital_src:
-                digital_map[date_str] = p.price
+                daily_groups[(date_key, 'digital')].append(p)
             elif p.source == 'PTT' and ptt_keyword in (p.title or ''):
-                ptt_map[date_str] = p.price
+                daily_groups[(date_key, 'ptt')].append(p)
         
-        # 取得排序後的日期聯集
-        all_dates = sorted(list(set(digital_map.keys()) | set(ptt_map.keys())))
+        # 使用字典暫存，最後再統一排序日期
+        temp_data = defaultdict(lambda: {'digital': None, 'ptt': None})
         
-        # 🌟 關鍵：確保 data 陣列長度與 labels 完全一致
+        # 遍歷所有組別 (例如: ('2026-03-26', 'digital'), ('2026-03-26', 'ptt'))
+        for (date_str, s_type) in daily_groups.keys():
+            group = sorted(daily_groups[(date_str, s_type)], key=lambda x: x.created_at)
+            
+            indices = [0] # 建立空白清單，預設拿第一筆
+            if len(group) > 1:
+                indices.append(-1) # 如果有兩筆以上，拿最後一筆
+                
+            for idx in indices:
+                p = group[idx]
+                # 建立唯一的標籤：日期 + 時間 (精確到秒或分以區隔點位)
+                full_ts = p.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                
+                if s_type == 'digital':
+                    temp_data[full_ts]['digital'] = p.price
+                else:
+                    temp_data[full_ts]['ptt'] = p.price
+
+        # 3. 依照時間戳記排序，生成最終陣列
+        sorted_ts = sorted(temp_data.keys())
+        
         return {
-            'labels': all_dates,
-            'digital_values': [digital_map.get(d, None) for d in all_dates],
-            'ptt_values': [ptt_map.get(d, None) for d in all_dates]
+            'labels': [f"{ts[:-6]}h" for ts in sorted_ts], # ts[:-6] 是裁切掉 ":MM:SS" (分與秒)，只保留到小時
+            'digital_values': [temp_data[ts]['digital'] for ts in sorted_ts],
+            'ptt_values': [temp_data[ts]['ptt'] for ts in sorted_ts]
         }
 
     ns_chart = process_history(prices, 'ns')
