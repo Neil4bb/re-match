@@ -1,7 +1,7 @@
 # admin_tools.py
 from app import app
 from extensions import db
-from models import Game, EShopMapping
+from models import Game, EShopMapping, UserAsset
 
 def force_bind_nsuid_to_igdb(nsuid, igdb_id, chinese_name):
     """
@@ -108,6 +108,37 @@ def force_fix_game_full_data(nsuid, igdb_id, chinese_name, english_name, cover_u
         db.session.commit()
         print(f"✨ 成功！遊戲 '{chinese_name}' 資料已完全手工校正。")
 
+
+def delete_game_by_id(game_id):
+    """
+    安全刪除指定 ID 的遊戲：
+    1. 先解除 EShopMapping 的關聯 (防止外鍵衝突)
+    2. 刪除 Game 本體 (會自動觸發價格與平台 ID 的連帶刪除)
+    """
+    with app.app_context():
+        # 🌟 步驟 1: 解除字典 (EShopMapping) 的綁定
+        mappings = EShopMapping.query.filter_by(igdb_id=game_id).all()
+        for m in mappings:
+            m.igdb_id = None
+            print(f"🔗 已解除 Mapping 綁定: {m.game_name}")
+
+        # 2. 🌟 新增：刪除所有引用此遊戲的使用者資產
+        # 因為 user_assets.game_id 設有外鍵約束，必須先消失
+        assets_deleted = UserAsset.query.filter_by(game_id=game_id).delete()
+        print(f"📦 已從 {assets_deleted} 個使用者的資產箱中移除此遊戲")
+
+        # 🌟 步驟 2: 執行刪除
+        game = db.session.get(Game, game_id)
+        if game:
+            name = game.chinese_name or game.name
+            print(f"🗑️ 正在從資料庫完全抹除: {name} (ID: {game_id})")
+            db.session.delete(game)
+            db.session.commit()
+            print(f"✅ 成功刪除遊戲：{name}")
+        else:
+            print(f"❌ 找不到 ID 為 {game_id} 的遊戲，可能已被刪除。")
+
+
 if __name__ == "__main__":
     # 執行修正：斯普拉遁 3 (IGDB ID: 143613)
     #force_bind_nsuid_to_igdb(
@@ -126,10 +157,15 @@ if __name__ == "__main__":
     #reset_game_data(143613)
 
     # 🌟 斯普拉遁 3 完整修復範例
-    force_fix_game_full_data(
-        nsuid='70010000046398', 
-        igdb_id=143613, 
-        chinese_name="斯普拉遁3",
-        english_name="Splatoon 3",
-        cover_url="https://img-eshop.cdn.nintendo.net/i/f8b83a587fe7235cc3fe842eaccf3d9679500a6b206e119b772f8f52572161d4.jpg"
-    )
+    #force_fix_game_full_data(
+    #    nsuid='70010000046398', 
+    #    igdb_id=143613, 
+    #    chinese_name="斯普拉遁3",
+    #    english_name="Splatoon 3",
+    #    cover_url="https://img-eshop.cdn.nintendo.net/i/f8b83a587fe7235cc3fe842eaccf3d9679500a6b206e119b772f8f52572161d4.jpg"
+    #)
+
+    target_ids = [431, 565, 512]
+
+    for gid in target_ids:
+        delete_game_by_id(gid)

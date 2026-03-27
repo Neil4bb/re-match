@@ -1,2 +1,2 @@
 30 22 * * * cd /app && /usr/local/bin/python3 sync_trending.py >> /var/log/cron.log 2>&1
-0 10 * * * cd /app && /usr/local/bin/python3 sync_trending.py >> /var/log/cron.log 2>&1
+35 10 * * * cd /app && /usr/local/bin/python3 sync_trending.py >> /var/log/cron.log 2>&1

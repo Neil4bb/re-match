@@ -110,7 +110,8 @@ class EShopService:
                     specific_title = f"eShop_{nsuid}"
                     
                     # 這裡必須確保是在 app.app_context 下執行，否則 db 操作會失敗
-                    two_hours_ago = datetime.now() - timedelta(hours=2) # 🌟 計算 2 小時前的時間點
+                    now_utc = datetime.utcnow()
+                    two_hours_ago = now_utc - timedelta(hours=2) # 🌟 計算 2 小時前的時間點
                     
                     mp = MarketPrice.query.filter(
                         MarketPrice.game_id == game_id,
@@ -125,13 +126,16 @@ class EShopService:
                             game_id=game_id, 
                             source='eShop', 
                             title=specific_title,
-                            price=price_twd
+                            price=price_twd,
+                            created_at=now_utc # 🌟 手動傳入確定的時間
                         )
                         db.session.add(mp)
+                        print(f"✅ [Price Saved] eShop 價格已入庫: NT$ {price_twd}")
                     else:
                         # 🌟 2 小時內已存過：更新該筆紀錄
                         mp.price = price_twd
-                        mp.created_at = datetime.now() # 選配：更新時間戳記
+                        mp.created_at = now_utc # 更新時間戳記
+                        print(f"🔄 [Price Updated] eShop 2小時內已有紀錄，僅更新時間與價格")
                         
                     db.session.commit()
                     print(f"✅ [Price Saved] {specific_title} 成功存入價格: NT$ {price_twd}")

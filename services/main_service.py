@@ -430,36 +430,86 @@ class MainManager:
                 
 
                 # --- 第一次執行：獲取 PS 價格 ---
-                ptt_results_ps = self.ptt.search_game_prices(ptt_keyword, "PS", filter_tag=filter_tag)
-                if ptt_results_ps:
-                    best_info = ptt_results_ps[0]
-                    new_ptt = MarketPrice(
-                        game_id=game_id,
-                        source='PTT',
-                        platform='PlayStation 5',
-                        title=best_info['title'],
-                        price=best_info['price'],
-                        source_url=best_info.get('url', "")
-                    )
-                    db.session.add(new_ptt)
-                    db.session.commit()
-                    results['ps_ptt'] = best_info['price']
+                try:
+                    ptt_results_ps = self.ptt.search_game_prices(ptt_keyword, "PS", filter_tag=filter_tag)
+                    if ptt_results_ps:
+                        now_utc = datetime.utcnow()
+                        today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                        for r in ptt_results_ps:
+                            # 🌟 核心：檢查今天是否已經存過這篇「特定文章 (URL)」
+                            exists = MarketPrice.query.filter(
+                                MarketPrice.game_id == game_id,
+                                MarketPrice.source == 'PTT',
+                                MarketPrice.source_url == r['url'], # 用 URL 判定唯一性
+                                MarketPrice.created_at >= today_start
+                            ).first()
+
+                            if not exists:
+                                # 根據標題決定平台標籤
+                                post_title = r['title'].upper()
+                                p_tag = 'PlayStation 5' if '[PS' in post_title else 'Switch'
+                                
+                                new_price = MarketPrice(
+                                    game_id=game_id,
+                                    source='PTT',
+                                    platform=p_tag,
+                                    title=r['title'],
+                                    price=r['price'],
+                                    source_url=r['url'],
+                                    created_at=now_utc
+                                )
+                                db.session.add(new_price)
+                                print(f"✅ [PTT Multi-Save] 存入文章: {r['title'][:10]}... NT$ {r['price']}")
+                            else:
+                                # 如果今天存過同一篇，更新價格 (可能賣家改價)
+                                exists.price = r['price']
+                                exists.created_at = now_utc
+                                
+                        db.session.commit()
+                except Exception as e:
+                    print(f"⚠️ PTT PS 搜尋逾時跳過: {e}")
 
                 # --- 第二次執行：獲取 NS 價格 ---
-                ptt_results_ns = self.ptt.search_game_prices(ptt_keyword, "NS", filter_tag=filter_tag)
-                if ptt_results_ns:
-                    best_info = ptt_results_ns[0]
-                    new_ptt = MarketPrice(
-                        game_id=game_id,
-                        source='PTT',
-                        platform='Switch',
-                        title=best_info['title'],
-                        price=best_info['price'],
-                        source_url=best_info.get('url', "")
-                    )
-                    db.session.add(new_ptt)
-                    db.session.commit()
-                    results['ns_ptt'] = best_info['price']
+                try:
+                    ptt_results_ns = self.ptt.search_game_prices(ptt_keyword, "NS", filter_tag=filter_tag)
+                    if ptt_results_ns:
+                        now_utc = datetime.utcnow()
+                        today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                        for r in ptt_results_ns:
+                            # 🌟 核心：檢查今天是否已經存過這篇「特定文章 (URL)」
+                            exists = MarketPrice.query.filter(
+                                MarketPrice.game_id == game_id,
+                                MarketPrice.source == 'PTT',
+                                MarketPrice.source_url == r['url'], # 用 URL 判定唯一性
+                                MarketPrice.created_at >= today_start
+                            ).first()
+
+                            if not exists:
+                                # 根據標題決定平台標籤
+                                post_title = r['title'].upper()
+                                p_tag = 'PlayStation 5' if '[PS' in post_title else 'Switch'
+                                
+                                new_price = MarketPrice(
+                                    game_id=game_id,
+                                    source='PTT',
+                                    platform=p_tag,
+                                    title=r['title'],
+                                    price=r['price'],
+                                    source_url=r['url'],
+                                    created_at=now_utc
+                                )
+                                db.session.add(new_price)
+                                print(f"✅ [PTT Multi-Save] 存入文章: {r['title'][:10]}... NT$ {r['price']}")
+                            else:
+                                # 如果今天存過同一篇，更新價格 (可能賣家改價)
+                                exists.price = r['price']
+                                exists.created_at = now_utc
+                                
+                        db.session.commit()
+                except Exception as e:
+                    print(f"⚠️ PTT NS 搜尋逾時跳過: {e}")
                 
             else:
                 # 如果沒 ID，依然可以印出訊息記錄，但不執行資料庫操作
@@ -498,13 +548,18 @@ class MainManager:
                 formatted['ns_digital'] = p.price
             elif p.source == 'PTT' and 'Switch' in (p.platform or '') and formatted['ns_ptt'] == "--":
                 formatted['ns_ptt'] = p.price
+
+            # --- 🌟 修改重點：格式化歷史紀錄 (轉為 UTC+8) ---
+            local_time = p.created_at + timedelta(hours=8)
                 
             # 2. 填入歷史紀錄
             formatted['history'].append({
                 'source': p.source,
                 'platform': p.platform,
                 'price': p.price,
-                'date': p.created_at.strftime('%Y-%m-%d %H:%M')
+                'title': p.title or "",            # 🌟 放入標題
+                'source_url': p.source_url or "",  # 🌟 放入原文網址
+                'date': local_time.strftime('%Y-%m-%d %H:%M') # 🌟 轉為台灣時間字串
             })
 
         return formatted
@@ -524,7 +579,8 @@ class MainManager:
             return
 
         # 🌟 定義 2 小時的時間門檻
-        two_hours_ago = datetime.now() - timedelta(hours=2)
+        now_utc = datetime.utcnow()
+        two_hours_ago = now_utc - timedelta(hours=2)
 
         existing = MarketPrice.query.filter(
             MarketPrice.game_id == game_id,
@@ -542,13 +598,15 @@ class MainManager:
                 platform=p_tag,
                 title=title,
                 price=price,
-                source_url=url
+                source_url=url,
+                created_at=now_utc
             )
             db.session.add(new_price)
             print(f"✅ [Price Saved] {source} 價格已入庫: NT$ {price}")
         else:
             existing.price = price
-            existing.created_at = datetime.now() # 更新時間戳記
+            existing.created_at = now_utc # 更新時間戳記
+            print(f"🔄 [Price Updated] {source} 2小時內已有紀錄，僅更新時間與價格")
 
         db.session.commit() 
             

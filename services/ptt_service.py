@@ -41,7 +41,7 @@ class PttAdapter:
 
             self.session.headers.update({'User-Agent': random.choice(self.user_agents)})
 
-            response = self.session.get(self.search_url, params=params, timeout=10)
+            response = self.session.get(self.search_url, params=params, timeout=5)
             if response.status_code != 200: return []
 
             soup = BeautifulSoup(response.text, 'lxml')
@@ -80,7 +80,7 @@ class PttAdapter:
 
 
                 # 3. 點進內文精準獵殺價格
-                time.sleep(random.uniform(1.0, 2.2))
+                time.sleep(random.uniform(0.5, 1.5))
                 article_url = self.base_url + title_link['href']
                 
                 price = self.get_price_from_content(article_url, target_game)

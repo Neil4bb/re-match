@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import joinedload
 from collections import defaultdict
+from datetime import timedelta
 
 
 load_dotenv()
@@ -165,8 +166,11 @@ def game_detail(game_id):
         ptt_keyword = '[NS' if target_platform == 'ns' else '[PS'
 
         for p in price_list:
-            # 🌟 強制轉為字串日期 '2026-03-24'
-            date_key = p.created_at.strftime('%Y-%m-%d')
+            # 🌟 將資料庫的 UTC 時間轉為台灣時間 (+8)
+            local_time = p.created_at + timedelta(hours=8)
+
+            # 使用轉好的 local_time 作為分組依據
+            date_key = local_time.strftime('%Y-%m-%d')
 
             if p.source == digital_src:
                 daily_groups[(date_key, 'digital')].append(p)
@@ -178,21 +182,27 @@ def game_detail(game_id):
         
         # 遍歷所有組別 (例如: ('2026-03-26', 'digital'), ('2026-03-26', 'ptt'))
         for (date_str, s_type) in daily_groups.keys():
-            group = sorted(daily_groups[(date_str, s_type)], key=lambda x: x.created_at)
-            
-            indices = [0] # 建立空白清單，預設拿第一筆
-            if len(group) > 1:
-                indices.append(-1) # 如果有兩筆以上，拿最後一筆
+            group = daily_groups[(date_str, s_type)]
+
+            # 🌟 關鍵修改點：如果是 PTT，我們只取當天最便宜的那一筆 (避免圖表點位重疊)
+            if s_type == 'ptt':
+                # 找到價格最低的那一個物件
+                best_p = min(group, key=lambda x: x.price)
+                full_ts = (best_p.created_at + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')
+                temp_data[full_ts]['ptt'] = best_p.price  
                 
-            for idx in indices:
-                p = group[idx]
-                # 建立唯一的標籤：日期 + 時間 (精確到秒或分以區隔點位)
-                full_ts = p.created_at.strftime('%Y-%m-%d %H:%M:%S')
-                
-                if s_type == 'digital':
+            else:
+                # 數位版通常一天只有一兩筆，維持你原本的取頭取尾邏輯
+                group_sorted = sorted(group, key=lambda x: x.created_at)
+                indices = [0] # 建立空白清單，預設拿第一筆
+                if len(group) > 1:
+                    indices.append(-1) # 如果有兩筆以上，拿最後一筆
+                    
+                for idx in indices:
+                    p = group_sorted[idx]
+                    # 建立唯一的標籤：日期 + 時間 (精確到秒或分以區隔點位)
+                    full_ts = (p.created_at + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')
                     temp_data[full_ts]['digital'] = p.price
-                else:
-                    temp_data[full_ts]['ptt'] = p.price
 
         # 3. 依照時間戳記排序，生成最終陣列
         sorted_ts = sorted(temp_data.keys())
@@ -206,10 +216,13 @@ def game_detail(game_id):
     ns_chart = process_history(prices, 'ns')
     ps_chart = process_history(prices, 'ps')
 
+    market_data = manager._get_cached_market_data(game.id)
+
     return render_template('game_detail.html', 
                            game=game, 
                            ns_chart=ns_chart, 
-                           ps_chart=ps_chart)
+                           ps_chart=ps_chart,
+                           market_data=market_data)
 
 # --- 新增：手動更新 API (對應第三點) ---
 @app.route('/api/game/<int:game_id>/refresh', methods=['POST'])

@@ -108,11 +108,28 @@
                         <tr><th>日期</th><th>來源</th><th>價格</th></tr>
                     </thead>
                     <tbody>
-                        {% for p in game.prices|reverse %}
+                        {% for p in market_data.history %}
                         <tr>
-                            <td>{{ p.created_at.strftime('%Y-%m-%d') }}</td>
-                            <td><span class="badge bg-secondary">{{ p.source }}</span></td>
-                            <td>NT$ {{ p.price }}</td>
+                            <td>{{ p.date }}</td>
+                            <td>
+                                <span class="badge bg-secondary">{{ p.source }}</span>
+                                <small class="text-muted d-block">{{ p.platform }}</small>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <span>NT$ {{ p.price }}</span>
+                                    {% if p.source == 'PTT' and p.source_url %}
+                                    <a href="{{ p.source_url }}" target="_blank" class="btn btn-outline-primary btn-sm ms-2">
+                                        原文 <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                    {% endif %}
+                                </div>
+                                {% if p.source == 'PTT' and p.title %}
+                                <div class="small text-muted text-truncate mt-1" style="max-width: 180px;" title="{{ p.title }}">
+                                    {{ p.title }}
+                                </div>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -127,11 +144,22 @@
                 <tr><th>日期</th><th>來源</th><th>價格</th></tr>
             </thead>
             <tbody>
-                {% for p in game.prices|reverse %}
+                {% for p in market_data.history %}
                 <tr>
-                    <td>{{ p.created_at.strftime('%Y-%m-%d') }}</td>
-                    <td><span class="badge bg-secondary">{{ p.source }}</span></td>
-                    <td>NT$ {{ p.price }}</td>
+                    <td class="small">{{ p.date }}</td>
+                    <td>
+                        <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ p.source }}</span>
+                    </td>
+                    <td>
+                        <div class="d-flex flex-column">
+                            <span class="fw-bold">NT$ {{ p.price }}</span>
+                            {% if p.source == 'PTT' and p.source_url %}
+                            <a href="{{ p.source_url }}" target="_blank" class="btn btn-link btn-sm p-0 text-start" style="font-size: 0.75rem;">
+                                查看原文
+                            </a>
+                            {% endif %}
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
