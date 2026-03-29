@@ -8,7 +8,7 @@
                 <a href="/my-assets" class="btn btn-primary shadow-sm">我的遊戲資產</a>
             </div>
 
-            <ul class="nav nav-pills mb-4 bg-white p-2 rounded shadow-sm border">
+            <ul class="nav nav-pills mb-4 p-2 rounded shadow-sm border">
                 <li class="nav-item">
                     <a class="nav-link {% if current_platform == 'ns' %}active bg-danger text-white{% else %}text-dark{% endif %}" 
                        href="{{ url_for('index', platform='ns') }}">🔴 Nintendo</a>
@@ -21,7 +21,7 @@
 
             <div class="card shadow-sm border-0">
                 <div class="table-responsive"> <table class="table table-hover align-middle mb-0">
-                        <thead class="table-dark">
+                        <thead>
                             <tr>
                                 <th class="ps-4">遊戲名稱 / 平台</th>
                                 <th>{{ '數位行情 (eShop)' if current_platform == 'ns' else '數位行情 (PS)' }}</th>

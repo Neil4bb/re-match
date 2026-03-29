@@ -8,14 +8,264 @@
     <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <style>
-        body { background-color: #f8f9fa; }
-        .navbar { margin-bottom: 2rem; }
+        /* 1. 根據開發者模式數據鎖定核心變數 */
+        :root {
+            --bs-body-bg: #2a2822 !important;      /* Navbar/背景精確色碼 */
+            --bs-body-color: #e5d4b5 !important;    /* 文字暖沙色 */
+            --bs-border-color: #4c4c4c !important; /* 邊框精確色碼 */
+        }
+
+        /* 2. 全域背景與文字同步 */
+        html, body {
+            background-color: #2a2822 !important;
+            color: #e5d4b5 !important;
+        }
+
+        /* 3. 紅色圈起區塊：強制同步為背景色 #2a2822 */
+        .navbar, .card, .nav-pills, .bg-white, .bg-dark, .table, .form-control {
+            background-color: #2a2822 !important;
+            background: #2a2822 !important;
+            border-color: #4c4c4c !important;
+            box-shadow: none !important;
+        }
+
+        /* 4. 藍色圈起文字：同步為標題暖白色 (採樣自 --darkreader-text-000000) */
+        h1, h2, h3, h4, .fw-bold, b, strong, td, th, .navbar-brand, .nav-link {
+            color: #e5d4b5 !important; 
+            opacity: 1 !important;
+        }
+
+        /* 5. 修正遊戲名稱連結與操作按鈕：使用開發者工具內的藍色數值 */
+        a, .text-primary {
+            color: #738492 !important; /* --darkreader-text-0040ff */
+            text-decoration: none !important;
+        }
+
+        .btn-primary, .btn-track, .nav-pills .nav-link.active {
+            background-color: #394b5d !important; /* --darkreader-background-0060d4 */
+            border-color: #4c5a70 !important;
+            color: #e5d4b5 !important;
+        }
+
+        /* 6. 表格細節：維持原本的細度與顏色 */
+        .table td, .table th {
+            border-color: #4c4c4c !important;
+        }
+        
+        /* 修正次要文字 (價差等) */
+        .text-muted, .small {
+            color: #b0a188 !important; /* --darkreader-text-a9a9a9 */
+        }
+
+        /* 1. 搜尋框 placeholder 顏色修正 */
+        .form-control::placeholder {
+            color: #b0a188 !important; /* 採樣自 --darkreader-text-a9a9a9 */
+        }
+
+        /* 2. ：登入/註冊按鈕文字顏色 */
+        .navbar .btn-outline-light, .navbar .btn-light {
+            color: #e5d4b5 !important; /* 暖沙色文字 */
+            border-color: #4c4c4c !important; /* 細邊框顏色 */
+        }
+
+        /* 按鈕 Hover 效果：復刻 Dark Reader 懸停質感 */
+        .navbar .btn-outline-light:hover, .navbar .btn-light:hover {
+            background-color: #645f53 !important; /* --darkreader-background-0060d4 */
+            color: #e5d4b5 !important;
+        }
+
+        /* 3. 推薦購買實體版 / 資料不足 (文字膠囊) */
+        /* 修正背景與文字顏色，移除發白問題 */
+        .badge.bg-success, .badge.bg-secondary {
+            background-color: #645f53 !important; /* 區塊背景色 */
+            color: #e5d4b5 !important;            /* 暖灰色文字 */
+            border: 1px solid #4c4c4c !important;  /* 細邊框 */
+            opacity: 1 !important;
+        }
+
+        /* 1. 一般狀態：背景透明、藍色邊框、藍色文字 */
+        .btn-track {
+            background-color: transparent !important;
+            border: 1px solid #738492 !important; /* 採樣自 --darkreader-text-0040ff */
+            color: #738492 !important;
+            transition: all 0.2s ease-in-out; /* 增加過渡平滑感 */
+        }
+
+        /* 2. Hover 狀態：藍色背景、暖沙色文字 */
+        .btn-track:hover {
+            background-color: #394b5d !important; /* 採樣自 --darkreader-background-0060d4 */
+            border-color: #394b5d !important;
+            color: #e5d4b5 !important;           /* 你的主文字暖沙色 */
+        }
+
+        /* 3. 確保按鈕內部的 Bootstrap 變數不會干擾 */
+        .btn-track {
+            --bs-btn-hover-bg: #394b5d !important;
+            --bs-btn-hover-border-color: #4c5a70 !important;
+            --bs-btn-hover-color: #e5d4b5 !important;
+        }
+
+        /* 1. Nintendo 平台：切換按鈕選中狀態與遊戲膠囊 */
+        /* 採樣自 --darkreader-bg--bs-danger: #6c3e37 */
+        .nav-pills .nav-link.active.bg-danger, 
+        .badge.bg-danger {
+            background-color: #6c3e37 !important;
+            background: #6c3e37 !important;
+            color: #e5d4b5 !important; /* 統一暖沙色文字 */
+        }
+
+        /* 2. PlayStation 平台：切換按鈕選中狀態與遊戲膠囊 */
+        /* 採樣自 --darkreader-background-0060d4: #394b5d */
+        .nav-pills .nav-link.active.bg-primary, 
+        .badge.bg-primary {
+            background-color: #394b5d !important;
+            background: #394b5d !important;
+            color: #e5d4b5 !important; /* 統一暖沙色文字 */
+        }
+
+        /* 3. 修正圓形圖示（🔴🔵）旁的文字顏色，確保與平台背景一致 */
+        .nav-link.active {
+            opacity: 1 !important;
+        }
+
+        /* 1. 藍色標線：價格達標 (Wishlist - status: info) */
+        /* 採樣自 --darkreader-background-0060d4: #394b5d */
+        .badge.bg-info {
+            background-color: #60837b !important;
+            background: #60837b !important;
+            color: #e5d4b5 !important;           /* 暖沙色文字 */
+        }
+
+        /* 2. 墨綠色：等待特價中 (Wishlist - status: default/success) */
+        /* 採樣自 --darkreader-background-198754: #465a42 */
+        .badge.bg-success {
+            background-color: #465a42 !important;
+            background: #465a42 !important;
+            color: #e5d4b5 !important;
+        }
+
+        /* 3. 暗黃色：資產縮水警示 (Owned - status: warning) */
+        /* 採樣自 --darkreader-background-c59d00: #887641 */
+        .badge.bg-warning {
+            background-color: #887641 !important;
+            background: #887641 !important;
+            color: #e5d4b5 !important;
+        }
+
+        /* 1. 精確抓取「設定」按鈕：包含 info 和 primary 兩種顏色 */
+        .table td .btn-outline-primary, 
+        .table td .btn-outline-info,
+        .table td [data-bs-target*="edit"] {
+            background-color: transparent !important;
+            background: transparent !important;
+            border: 1px solid #738492 !important; /* 藍色邊框 */
+            color: #738492 !important;             /* 藍色文字 */
+            padding: 2px 10px !important;
+            border-radius: 4px !important;
+            font-size: 0.85rem !important;
+            transition: all 0.2s ease !important;
+        }
+
+        /* 2. 精確抓取「價格數字 + 鉛筆」的組合 */
+        .table td .d-flex.align-items-center .fw-bold,
+        .table td .d-flex.align-items-center .text-primary {
+            color: #738492 !important; /* 強制將價格數字也轉為藍色 */
+        }
+
+        /* 3. 處理鉛筆按鈕本身 (原本是 text-secondary) */
+        .table td button.text-secondary {
+            color: #738492 !important;
+            background: transparent !important;
+            margin-left: 5px !important;
+        }
+
+        /* 4. Hover 狀態切換 */
+        .table td .btn-outline-primary:hover, 
+        .table td .btn-outline-info:hover,
+        .table td [data-bs-target*="edit"]:hover {
+            background-color: #394b5d !important; /* 藍色背景 */
+            border-color: #394b5d !important;
+            color: #e5d4b5 !important;             /* 暖沙色文字 */
+        }
+
+        /* 5. 順便修正操作欄的「星星」與「垃圾桶」 */
+        .table td .bi-bag, .table td .bi-bag-fill {
+            color: #887641 !important; /* 暖金色星星 */
+        }
+
+        .table td .text-danger, .table td .bi-trash3 {
+            color: #6c3e37 !important; /* 暗紅色垃圾桶 */
+            opacity: 0.8;
+        }
+
+        .table td .text-danger:hover {
+            color: #dc3545 !important; /* 懸停稍微變亮 */
+            opacity: 1;
+        }
+        
+        /* 1. 針對 Game Detail 頁面左側欄內的 Switch 追蹤按鈕 */
+        .container.mt-4 .col-5.col-md-4 a.btn-outline-danger.btn-track {
+            background-color: transparent !important;
+            background: transparent !important;
+            border: 1px solid #6c3e37 !important; /* Nintendo 暗紅色 */
+            color: #6c3e37 !important;             /* 紅色文字 */
+            padding: 4px 12px !important;
+            border-radius: 4px !important;
+            transition: all 0.2s ease-in-out !important;
+        }
+
+        /* 2. Hover 狀態：暗紅底、沙色字 */
+        .container.mt-4 .col-5.col-md-4 a.btn-outline-danger.btn-track:hover {
+            background-color: #6c3e37 !important; /* 暗紅色背景 */
+            border-color: #6c3e37 !important;
+            color: #e5d4b5 !important;           /* 你的沙色文字碼 */
+        }
+
+        /* 3. 同步修正 PlayStation 版本 (改為藍框透明，Hover 藍底沙色字) */
+        .container.mt-4 .col-5.col-md-4 a.btn-outline-primary.btn-track {
+            background-color: transparent !important;
+            border: 1px solid #738492 !important; /* 你的藍色碼 */
+            color: #738492 !important;
+            padding: 4px 12px !important;
+            border-radius: 4px !important;
+        }
+
+        .container.mt-4 .col-5.col-md-4 a.btn-outline-primary.btn-track:hover {
+            background-color: #394b5d !important; /* 你的藍色背景碼 */
+            border-color: #394b5d !important;
+            color: #e5d4b5 !important;
+        }
+
+        /* 1. 精確抓取「即時更新行情」按鈕 (使用 ID 鎖定) */
+        #refresh-btn.btn-outline-secondary {
+            background-color: transparent !important;
+            background: transparent !important;
+            /* 同步登入按鈕邊框色與文字色 */
+            border: 1px solid #4c4c4c !important; 
+            color: #e5d4b5 !important;           
+            padding: 4px 12px !important;
+            border-radius: 4px !important;
+            transition: all 0.2s ease-in-out !important;
+        }
+
+        /* 2. Hover 狀態：同步導覽列的懸停質感 (#645f53) */
+        #refresh-btn.btn-outline-secondary:hover {
+            background-color: #645f53 !important; 
+            border-color: #4c4c4c !important;
+            color: #e5d4b5 !important;
+        }
+
+        /* 3. 修正按鈕內的圖示顏色 */
+        #refresh-btn i.bi-arrow-clockwise {
+            color: inherit !important;
+        }
+
     </style>
 </head>
 
 <body>
     
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg">
         <div class="container">
             <a class="navbar-brand" href="/">🎮 Re: Match 遊戲再易局</a>
 
@@ -33,7 +283,7 @@
                         <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">登出</a>
                     {% else %}
                         <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm me-2">登入</a>
-                        <a href="{{ url_for('register') }}" class="btn btn-light btn-sm">註冊</a>
+                        <a href="{{ url_for('register') }}" class="btn btn-outline-light btn-sm">註冊</a>
                     {% endif %}
                 </div>
             </div>
