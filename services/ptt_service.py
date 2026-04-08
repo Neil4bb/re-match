@@ -135,32 +135,57 @@ class PttAdapter:
             name_match = re.search(r'【物品名稱】\s*[:：]\s*(.*?)(?=【|$)', text, re.S)
             price_match = re.search(r'【售\s+價】\s*[:：]\s*(.*?)(?=【|$)', text, re.S)
             
+            # 定義無效數字判定
+            def is_invalid_price(n):
+                return (2001 <= n <= 2049) or n == 2077
+
             if name_match and price_match:
-                # 這裡保留你原本的名稱與價格對齊邏輯
-                names = name_match.group(1).strip().split('\n')
-                prices = price_match.group(1).strip().split('\n')
+                # 1. 取得名稱列表
+                names = [n.strip() for n in name_match.group(1).strip().split('\n') if n.strip()]
                 
+                # 2. 取得價格列表，並「預先過濾」掉沒有數字的雜訊行
+                raw_prices = price_match.group(1).strip().split('\n')
+                valid_prices = []
+                for p_line in raw_prices:
+                    # 只有包含數字的行才被視為「可能的價格行」
+                    if re.search(r'\d+', p_line):
+                        valid_prices.append(p_line)
+                
+                # 3. 定義搜尋核心
                 target_core = re.split(r'[:：！!/／]', target_game)[0].strip()[:4].lower()
                 
+                # 4. 找到目標遊戲在名稱列表中的 index
                 target_index = -1
                 for i, name in enumerate(names):
                     if target_core in name.lower():
                         target_index = i
                         break
                 
-                if target_index != -1 and target_index < len(prices):
-                    price_line = prices[target_index]
-                    found = re.search(r'\d{3,4}', price_line)
-                    if found:
-                        val = int(found.group())
-                        if 100 < val < 5000 and val not in [2025, 2026]:
-                            return val
+                # 5. 進行對齊抓取
+                if target_index != -1:
+                    # 優先方案 A：在 valid_prices 裡找有沒有包含關鍵字的行 (最準)
+                    for p_line in valid_prices:
+                        if target_core in p_line.lower():
+                            found = re.search(r'\d{3,4}', p_line)
+                            if found and not is_invalid_price(int(found.group())):
+                                return int(found.group())
+                    
+                    # 優先方案 B：如果 A 找不到，則使用「過濾後的索引」對齊
+                    # 這樣就能跳過「售價皆含運」這類雜訊行
+                    if target_index < len(valid_prices):
+                        target_line = valid_prices[target_index]
+                        found = re.search(r'\d{3,4}', target_line)
+                        if found:
+                            val = int(found.group())
+                            if 100 < val < 5000 and not is_invalid_price(val):
+                                return val
 
             # 備用方案：若結構化匹配失敗，嘗試全文搜尋（排除常見年份）
             all_nums = re.findall(r'\d{3,4}', text)
             for n_str in all_nums:
                 n = int(n_str)
-                if 250 < n < 3500 and n not in [2025, 2026]:
+                # 🌟 [關鍵修改]：備用方案也要排除這些數字，才不會抓到年份
+                if 250 < n < 3500 and not (2001 <= n <= 2049 or n == 2077):
                     return n
         except Exception as e:
             print(f"❌ 內文解析出錯: {e}")
