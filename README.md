@@ -12,11 +12,23 @@ A comprehensive web-based platform designed to track video game prices across va
 ## 🏗 System Architecture
 This project is built with a robust backend and deployed using modern cloud practices.
 
+### Infrastructure & Runtime
+<p align="center">
+  <img src="assets/ec2_runtime.png" alt="AWS EC2 Runtime Diagram" width="800">
+</p>
+
 * **Backend**: Flask (Python) with Gunicorn (WSGI Server)
 * **Database**: AWS RDS (MySQL) with SQLAlchemy ORM
 * **Reverse Proxy**: Nginx
 * **Containerization**: Docker & Docker Compose
-* **Hosting**: AWS EC2
+
+### Deployment Pipeline
+<p align="center">
+  <img src="assets/deployment_pipeline.png" alt="Deployment Pipeline Diagram" width="800">
+</p>
+
+* **CI/CD Workflow**: Automated builds and consistent environment parity from local development to AWS EC2.
+
 
 ## 📈 Optimization Highlights
 * **Performance**: Implemented a caching layer reducing database I/O load by **40%**.
