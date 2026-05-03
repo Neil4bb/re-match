@@ -1,6 +1,6 @@
 # 🎮 Re-Match
 ### Game Market Monitor & Asset Management System
-[🔗 Live Demo](https://rematch-games.com) | [🏗️ System Architecture](#system-architecture)
+[🔗 Live Demo](https://rematch-games.com) | [🏗️ System Architecture](#-system-architecture)
 
 A comprehensive web-based platform designed to track video game prices across various platforms (Steam, PTT Gamesale, etc.) and manage user game assets with real-time market data.
 
