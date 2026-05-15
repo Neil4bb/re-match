@@ -77,7 +77,20 @@
                                             <button type="button" class="btn btn-sm btn-outline-primary py-0" data-bs-toggle="modal" data-bs-target="#editTarget{{ asset.id }}">設定</button>
                                         {% endif %}
                                     </td>
-                                    <td class="text-primary">NT$ {{ analysis.digital or 'N/A' }}</td>
+                                    <td class="text-primary">
+                                        {# 1. 建立清單，且只放入「數字」類型的資料 #}
+                                        {% set price_list = [] %}
+                                        {% if analysis.digital is number %}{% set price_list = price_list + [analysis.digital] %}{% endif %}
+                                        {% if analysis.retail is number %}{% set price_list = price_list + [analysis.retail] %}{% endif %}
+
+                                        {# 2. 判斷清單是否有值 #}
+                                        {% if price_list %}
+                                            NT$ {{ price_list | min }}
+                                        {% else %}
+                                            {# 如果都不是數字，顯示後端原本傳過來的文字 (例如 'N/A') #}
+                                            {{ analysis.digital or analysis.retail or 'N/A' }}
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         {% set analysis_result = asset.status_analysis() %}
                                         <span class="badge bg-{{ analysis_result.status }}">
@@ -99,7 +112,17 @@
                                             </button>
                                         {% endif %}
                                     </td>
-                                    <td>NT$ {{ analysis.digital or 'N/A' }}</td>
+                                    <td>
+                                        {% set current_prices = [] %}
+                                        {% if analysis.digital is number %}{% set current_prices = current_prices + [analysis.digital] %}{% endif %}
+                                        {% if analysis.retail is number %}{% set current_prices = current_prices + [analysis.retail] %}{% endif %}
+
+                                        {% if current_prices %}
+                                            <span class="fw-bold">NT$ {{ current_prices | min }}</span>
+                                        {% else %}
+                                            <span class="text-muted">N/A</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         {% set analysis_result = asset.status_analysis() %}
                                         <span class="badge bg-{{ analysis_result.status }}">

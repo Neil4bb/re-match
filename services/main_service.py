@@ -45,7 +45,9 @@ class MainManager:
                 'nsuid': nsuid,
                 'cover_url': g.cover_url,
                 'is_local': True,
-                'source': 'Database'
+                'source': 'Database',
+                'has_ns_platform': g.has_ns_platform,
+                'has_ps_platform': g.has_ps_platform
             })
             seen_igdb_ids.add(g.id)
             if nsuid: seen_nsuids.add(nsuid)
@@ -71,7 +73,9 @@ class MainManager:
                         'nsuid': m.nsuid,
                         'cover_url': m.icon_url,
                         'is_local': True,
-                        'source': 'Mapping'
+                        'source': 'Mapping',
+                        'has_ns_platform': True, 
+                        'has_ps_platform': (m.igdb_id is not None) # 若有關聯 IGDB，可能有 PS 版
                     })
                     seen_nsuids.add(m.nsuid)
                     if m.igdb_id: seen_igdb_ids.add(m.igdb_id)
@@ -92,6 +96,14 @@ class MainManager:
         additional_results = []
         
         for item in igdb_items:
+            # 🌟 關鍵修正：在回傳前，根據 IGDB 的 platforms 欄位判定平台
+            # IGDB 平台 ID: 130 是 Switch, 48/167 是 PS4/PS5
+            platforms = item.get('platforms', [])
+            p_ids = [p.get('id') if isinstance(p, dict) else p for p in platforms]
+            
+            item['has_ns_platform'] = (130 in p_ids)
+            item['has_ps_platform'] = any(pid in [48, 167] for pid in p_ids)
+
             # 判斷 1：ID 是否完全相同 (雖然本地無結果，但保留結構相容性)
             is_duplicate = (item['id'] in seen_igdb_ids)
             
@@ -525,6 +537,7 @@ class MainManager:
 
     def _get_cached_market_data(self, game_id):
         """私有方法：從資料庫抓取資料並格式化（相容新舊需求）"""
+        game = db.session.get(Game, game_id) # 🌟 取得 game 物件以讀取 property
         # 抓取該遊戲所有的價格紀錄，按時間由新到舊
         all_prices = MarketPrice.query.filter_by(game_id=game_id).order_by(MarketPrice.created_at.desc()).all()
         
@@ -535,6 +548,8 @@ class MainManager:
             'ps_ptt': "--",
             'ns_digital': "--",
             'ns_ptt': "--",
+            'has_ns': game.has_ns_platform if game else False,
+            'has_ps': game.has_ps_platform if game else False, 
             'history': [] # 🌟 新增：給圖表用的完整清單
         }
 

@@ -41,8 +41,17 @@ function fetchMarketPrice(gameId, element, event) {
                     btn.setAttribute('onclick', `fetchMarketPrice('${data.new_game_id}', this, event)`);
                     const wishlistBtn = cardBody.querySelector('button[id^="wishlist-"]');
                     if (wishlistBtn) {
+                        // 🌟 核心修正：根據查價結果更新平台屬性
+                        // 只要數位或 PTT 有任一邊有價格，就代表該平台可用
+                        const hasNS = data.has_ns !== undefined ? data.has_ns : (data.ns_digital !== "--" || data.ns_ptt !== "--");
+                        const hasPS = data.has_ps !== undefined ? data.has_ps : (data.ps_digital !== "--" || data.ps_ptt !== "--");
+                        
+                        wishlistBtn.setAttribute('data-has-ns', hasNS ? 'true' : 'false');
+                        wishlistBtn.setAttribute('data-has-ps', hasPS ? 'true' : 'false');
+                        
+                        // 更新 ID 並綁定新的 handleHeartClick
                         wishlistBtn.id = `wishlist-${data.new_game_id}`;
-                        wishlistBtn.setAttribute('onclick', `toggleWishlist(this, '${data.new_game_id}')`);
+                        wishlistBtn.setAttribute('onclick', `handleHeartClick(this, '${data.new_game_id}')`);
                     }
                 }
             }
@@ -55,7 +64,7 @@ function fetchMarketPrice(gameId, element, event) {
 }
 
 // 2. 愛心追蹤邏輯
-function toggleWishlist(btn, gameId) {
+/*function toggleWishlist(btn, gameId) {
     // 【防呆】如果 ID 還是 None，說明還沒查過價
     if (gameId === 'None' || gameId === 'null') {
         alert("請先點擊「查詢行情」獲取遊戲資訊後再加入願望清單！");
@@ -76,4 +85,72 @@ function toggleWishlist(btn, gameId) {
             }
         })
         .catch(err => console.error('加入願望清單失敗:', err));
+}*/
+
+// 智慧愛心點擊處理
+function handleHeartClick(btn, gameId) {
+    if (gameId === 'None' || gameId === 'null') {
+        alert("請先點擊「查詢行情」後再加入！");
+        return;
+    }
+
+    const hasNS = btn.getAttribute('data-has-ns') === 'true';
+    const hasPS = btn.getAttribute('data-has-ps') === 'true';
+
+    if (hasNS && hasPS) {
+        let popover = bootstrap.Popover.getInstance(btn);
+        if (!popover) {
+            popover = new bootstrap.Popover(btn, {
+                html: true,
+                content: () => document.getElementById('platform-menu-html').innerHTML,
+                trigger: 'manual',
+                placement: 'top',
+                container: 'body', // 🌟 解決彈不出窗的關鍵
+                sanitize: false    // 🌟 讓紅圓點按鈕能點擊的關鍵
+            });
+
+            // 🌟 關鍵：監聽 Bootstrap 的 shown 事件
+            btn.addEventListener('shown.bs.popover', function () {
+                // 1. 找到 Bootstrap 隨機生成的 Popover 外層容器 ID
+                const popoverId = btn.getAttribute('aria-describedby');
+                const popoverDom = document.getElementById(popoverId);
+                
+                if (popoverDom) {
+                    // 2. 必須在 popoverDom 裡面找按鈕，不能在 document 找
+                    const nsBtn = popoverDom.querySelector('.btn-ns-action');
+                    const psBtn = popoverDom.querySelector('.btn-ps-action');
+
+                    if (nsBtn) {
+                        nsBtn.onclick = (e) => {
+                            e.stopPropagation(); // 防止事件冒泡
+                            executeAdd(gameId, 'ns', btn);
+                            popover.hide();
+                        };
+                    }
+                    if (psBtn) {
+                        psBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            executeAdd(gameId, 'ps', btn);
+                            popover.hide();
+                        };
+                    }
+                }
+            });
+        }
+        popover.toggle();
+    } else {
+        const platform = hasNS ? 'ns' : 'ps';
+        executeAdd(gameId, platform, btn);
+    }
+}
+
+function executeAdd(gameId, platform, btn) {
+    fetch(`/add_to_assets/${gameId}?platform=${platform}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                btn.style.color = "red";
+                alert(`已加入 ${platform.toUpperCase()} 願望清單！`);
+            }
+        });
 }
